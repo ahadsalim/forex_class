@@ -181,29 +181,29 @@ class forex_backtest_class():
         print("{} | Performance of Buy and Hold Stategy (%)= {}".format(date, self.get_perf_hold(bar)))
         return round(perf,2), self.trades,self.get_perf_hold(bar) , self.print_current_Balance(bar)
         
-    def print_current_position (self , bar) :
+    def print_current_position (self , ticker , bar) :
         '''
         bar : Print current position value in this bar
         '''
-        date , price = self.get_values(bar)
+        date , price = self.get_values(ticker, bar)
         cpv = self.units * price
-        print("{} | Current position value ={}".format(date,round(cpv,2)))
+        print("{} | Current position {} value ={}".format(date,ticker,round(cpv,2)))
 
-    def print_current_Balance (self , bar):
+    def print_current_Balance (self , ticker , bar):
         '''
         bar : Print current balance value in this bar
         '''
-        date , price = self.get_values(bar)
-        print ("{} | Current Balance : {}".format(date,round(self.current_balance , 2)))
+        date , price = self.get_values(ticker , bar)
+        print ("{} | Current Balance {} : {}".format(date,ticker , round(self.current_balance , 2)))
         return round(self.current_balance , 2)
 
-    def print_current_nav(self , bar):
+    def print_current_nav(self ,ticker , bar):
         '''
         bar : Print current net asset in this bar
         '''
-        date , price = self.get_values(bar)
+        date , price = self.get_values(ticker , bar)
         nav = self.current_balance + self.units *price
-        print("{} | Net Asset Value={}".format(date , round(nav,2)))
+        print("{} | Net Asset Value of {} = {}".format(date ,ticker , round(nav,2)))
 
     def CAGR(self, column_name, period=None , days=365):
         '''
@@ -382,24 +382,13 @@ class forex_backtest_class():
         clmr = self.CAGR(column_name)/self.max_drawdown(column_name)
         return clmr
 
-class backtest_class(forex_class):
-    '''
-    This class inheriates from forex_class to calculate and analize strategies :
-
-    Args:
-    start : start time
-    end   : end time
-    interval: period of data
-    spread : spread of this instrument
-    amount : How much capital do you want to trade with?
-    '''
-
     # ***************************************************** Simple Moving Average ***********************************
-    def sma(self , short , long) :
+    def sma(self , ticker ,short , long) :
         '''
         Calculate Simple Moving Average Strategy
         '''
-        df=self.data.copy()
+        df=self.data[ticker+"_close"].copy()
+        df.rename(columns={ticker+"_close": "Close"})
         df["sma_s"]=df.Close.rolling(short).mean() #calculate average of short period
         df["sma_l"]=df.Close.rolling(long).mean()
         df.dropna(inplace=True)
@@ -413,11 +402,11 @@ class backtest_class(forex_class):
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
-    def best_sma(self):
+    def best_sma(self , ticker):
         '''
         It examines the SMA strategy and declares the best short and long time periods with a higher profit target.
         '''
-        maxlen=len(self.data)
+        maxlen=len(self.data[ticker+"_close"])
         if maxlen <= 50 :
             sma_s = range(5,10,1)
             sma_l = range(10,maxlen,1)
@@ -430,16 +419,16 @@ class backtest_class(forex_class):
         couple=list(product(sma_s,sma_l))
         results=[]
         for c in couple :
-            results.append(self.sma(c[0],c[1]))
+            results.append(self.sma(ticker , c[0] , c[1]))
         return couple[np.argmax(results)]
     
-    def sma_backtest(self ,SMA_S ,SMA_L ):
+    def sma_backtest(self, ticker ,SMA_S ,SMA_L ):
         '''
         Back testing for SMA 
         SMA_S : Short period simple moving average 
         SMA_L : Long period simple moving average 
         '''
-        print("Testing SMA Strategy | {} | SMA_S= {} | SMA_L= {}".format(self.symbol , SMA_S,SMA_L))
+        print("Testing SMA Strategy | {} | SMA_S= {} | SMA_L= {}".format(ticker , SMA_S,SMA_L))
         print(75 * "-")
 
         self.position=0
@@ -447,7 +436,8 @@ class backtest_class(forex_class):
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data.copy()
+        df=self.data[ticker+"_close"].copy()
+        df.rename(columns={ticker+"_close": "Close"})
         df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
         df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
         df.dropna(inplace =True)
