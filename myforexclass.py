@@ -11,13 +11,13 @@ from plotly.offline import iplot
 
 class forex_backtest_class():
     '''
-    tickers = List of tickers or symbol based on source data , if using yahoo use yahoo symbol and if using your data use your symbol as list
-    start : start time as string
-    end   : end time as string
-    interval: period of data as string
-    spread : spread of this instrument as string
-    amount : How much capital do you want to trade with? as string
-    source = source of data : none for using yahoo finance and "address of folder" to use your data ex :"c:\data" name of file must be "ticker.csv" and name of column of date must be "Datetime"
+        tickers = List of tickers or symbol based on source data , if using yahoo use yahoo symbol and if using your data use your symbol as list
+        start : start time as string
+        end   : end time as string
+        interval: period of data as string
+        spread : spread of this instrument as string
+        amount : How much capital do you want to trade with? as string
+        source = source of data : none for using yahoo finance and "address of folder" to use your data ex :"c:/data" name of file must be "ticker.csv" and name of column of date must be "Datetime"
     '''
 
     def __repr__(self): 
@@ -38,6 +38,8 @@ class forex_backtest_class():
         self.units = 0
         self.trades= 0
         self.symbol=""
+        self.data=pd.DataFrame()
+        self.get_data()
         
     def get_data(self):
         '''
@@ -54,6 +56,7 @@ class forex_backtest_class():
                 data[ticker+"_volume"]=raw["Volume"]
                 data[ticker+"_returns"] = np.log(data[ticker+"_close"] / data[ticker+"_close"].shift(1))
                 data[ticker+"_cum_return"] = np.exp(data[ticker+"_returns"].cumsum())
+                print("Data of {} downloded.".format(ticker))
         else :
             for ticker in self.tickers :
                 address= self.source+"/"+ticker+".csv"
@@ -67,9 +70,10 @@ class forex_backtest_class():
                 data[ticker+"_volume"]=raw["Volume"]
                 data[ticker+"_returns"] = np.log(data[ticker+"_close"] / data[ticker+"_close"].shift(1))
                 data[ticker+"_cum_return"] = np.exp(data[ticker+"_returns"].cumsum())
+                print("Data of {} loded.".format(ticker))
                 
         data.dropna(inplace=True)
-        self.data=data
+        self.data=data.copy()
     
     def plot_data (self , columns=None) :
         '''
@@ -994,3 +998,6 @@ class forex_backtest_class():
                 
                 print("{} intervals was done".format(interv))
         print("The Operation is over !")       
+
+
+test = forex_backtest_class(["ETH-USD"],"2024-01-01" , "2024-02-01", "1h" , 0.0001 , 100000)
