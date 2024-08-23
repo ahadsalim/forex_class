@@ -3,11 +3,13 @@ import MetaTrader5 as mt5
 import time
 import pandas as pd
 import numpy as np
+import ta.trend
 import yfinance as yf
 import matplotlib.pyplot as plt
 from itertools import product
 import cufflinks as cf
 from plotly.offline import iplot
+import ta
 
 class forex_backtest_class():
     '''
@@ -42,6 +44,7 @@ class forex_backtest_class():
         self.temp_data=pd.DataFrame()
         self.get_data()
         
+#******************************************************* Get Data and Back Testing *********************************** 
     def get_data(self):
         '''
         Get Data from Yahoo Finance OR your csv file and calculate hold strategy
@@ -209,6 +212,7 @@ class forex_backtest_class():
         nav = self.current_balance + self.units *price
         print("{} | Net Asset Value of = {}".format(date , round(nav,2)))
 
+#****************************************************************** Calculate KPI of Portfolio *******************************
     def CAGR(self, column_name, period=None , days=365):
         '''
         Calculates the Compound Annual Growth Rate (CAGR) for a DataFrame.
@@ -385,6 +389,8 @@ class forex_backtest_class():
         "function to calculate calmar ratio"
         clmr = self.CAGR(column_name)/self.max_drawdown(column_name)
         return clmr
+
+#********************************************************** Technical Stategies *************************************
 
     # ***************************************************** Simple Moving Average ***********************************
     def sma(self , ticker ,short , long) :
@@ -787,14 +793,17 @@ class forex_backtest_class():
     #************************************************************************* Bollinger Band Indicator **************************
     def bollinger (self , ticker ,sma , dev ) :
         '''
-        Calculate Bollinger Band
+        Calculate Bollinger Band Indicator
+        این اندیکاتور یک مووینگ اوریج با دو تا انحراف معیار است.
+        sma = Period of simple moving average
+        dev = deviation of sma
         '''
         self.position=0
         self.trades=0
         
         df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
         df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        # می توان بجای قیمت بسته شدن میانگین قیمت بالا و پایین و بسته شدن را هم گذاشت.
         df["sma"]=df.Close.rolling(sma).mean()
         df["lower"]= df["sma"] - dev * df["Close"].rolling(sma).std()
         df["upper"]= df["sma"] + dev * df["Close"].rolling(sma).std()
@@ -923,7 +932,7 @@ class forex_backtest_class():
         K : 
         D :  
         '''
-        print("Testing Stochastic Strategy | {} | K= {} | D= {} ".format(self.symbol ,K,D))
+        print("Testing Stochastic Strategy | {} | K= {} | D= {} ".format(ticker ,K,D))
         print(75 * "-")
 
         self.position=0
@@ -953,89 +962,192 @@ class forex_backtest_class():
         summary= self.close_position(ticker ,bar+1)
         return summary
     
-    #************************************************************ Average True Range Indicator ************************
-    def atr(self , ticker ,n ):
-        '''
-        Calculate ATR Indicator 
-        n=14 , most of the time
-        '''
+    def ichimoku (self , ticker) :
+
+        df=self.data[[ticker+"_high",ticker+"_low",ticker+"_returns"]].copy()
+        df.rename(columns={ticker+"_high":"High",ticker+"_low":"Low",ticker+"_returns":"returns"},inplace=True)
+
+        ich=ta.trend.IchimokuIndicator(df["High"],df["Low"],9,26,52,False,True)
+        df["span_a"]=ich.ichimoku_a()
+        df["span_b"]=ich.ichimoku_b()
+        df["kijunsen"]=ich.ichimoku_base_line()
+        df["tenkensen"]=ich.ichimoku_conversion_line()
+        df["pos1"]= np.where(df["tenkensen"]>df["kijunsen"],1,-1) # position of buy (1) or sell (-1)
+        df["pos2"]= np.where(df["span_a"]>df["span_b"],1,-1) # position of buy (1) or sell (-1)
+        df["pos"]=(df["pos1"]+df["pos2"])/2
+        df["trades"]= df.pos.diff().fillna(0).abs()
+        df["str_ichi"]= df.pos.shift(1)* df.returns
+        df["str_net"]= df.str_ichi - (df.trades * (self.spread/2))
+        df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
+        df.dropna(inplace=True)
+        perf = round(df["cum_str_net"].iloc[-1] , 5)
+        return df,perf
+    
+    def ichimoku_backtest(self , ticker) :
+        print("Testing Ichimuko Strategy | {} | s= {} | m= {} | l={}".format(ticker ,14,26,52))
+        print(75 * "-")
+
+        self.position=0
+        self.trades=0
+        print ("Initial amount is : {}".format(self.initial_amount))
+        self.current_balance = self.initial_amount
+        
         df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
         df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
 
+        ich=ta.trend.IchimokuIndicator(df["High"],df["Low"],9,26,52,False,True)
+        df["span_a"]=ich.ichimoku_a()
+        df["span_b"]=ich.ichimoku_b()
+        df["kijunsen"]=ich.ichimoku_base_line()
+        df["tenkensen"]=ich.ichimoku_conversion_line()
+        df.dropna(inplace=True)
+        self.temp_data=df.copy()
+
+        for bar in range(len(df)-1) :
+            if self.position in [0] :
+                if df["tenkensen"].iloc[bar] > df["kijunsen"].iloc[bar] and df["span_a"].iloc[bar] > df["span_b"].iloc[bar]:
+                    self.go_long(bar , amount="all")
+                    self.position =1
+                if df["tenkensen"].iloc[bar] < df["kijunsen"].iloc[bar] and df["span_a"].iloc[bar] < df["span_b"].iloc[bar]:
+                    self.go_short(bar , amount="all")
+                    self.position = -1
+            elif self.position in [1] :
+                if df["tenkensen"].iloc[bar] < df["kijunsen"].iloc[bar] :
+                    self.go_short(bar , amount="all")
+                    self.position = 0
+            elif self.position in [-1] :
+                if df["tenkensen"].iloc[bar] > df["kijunsen"].iloc[bar] :
+                    self.go_long(bar , amount="all")
+                    self.position = 0
+        summary= self.close_position(ticker ,bar+1)
+        return summary
+    #************************************************************ Average True Range Indicator ************************
+    def atr(self , ticker ,n=14 ):
+        '''
+        Calculate ATR Indicator 
+        n=14 , most of the time
+        این اندیکاتور نوسانات بازار را نشان می دهد و هر چه بیشتر باشد بازار نوسان بیشتری دارد و هر چه بارا نوسان کمتری داشته باشد این اندیکارتور نیز کمتر است.
+        '''
+        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close"]].copy()
+        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close"},inplace=True)
+
         df["H-L"]= abs(df["High"] - df["Low"])
-        df["H-PC"] = abs(df["High"] - df["Close"].shift(1)) 
-        df["L-PC"]= abs(df["Low"] - df["Close"].shift(1))
+        df["H-PC"] = abs(df["High"] - df["Close"].shift(1))  # High - Previous Close
+        df["L-PC"]= abs(df["Low"] - df["Close"].shift(1))    # Low - Previous Close
         df["TR"]= df[["H-L" , "H-PC" , "L-PC"]].max(axis=1 , skipna=False)
         df["ATR"]= df["TR"].rolling(n).mean()
-        df.dropna(inplace=True)
-        #******************************** incomplete ************************
-
-        return df["TR"]
+        df.drop(["H-L","H-PC","L-PC"] , axis=1 , inplace=True)
+        #df[["Close","ATR"]].plot(figsize=(12,8) ,secondary_y="ATR")
+        return df
     
-    #********************************************** Average Directional Movement Index (ADX) indicator ******************** Error !!!!!!!!!!!!!!!!
+    #********************************************** Average Directional Movement Index (ADX) indicator ******************** 
     def adx(self , ticker , period=14 ):
         '''
         Calculates the Average Directional Movement Index (ADX) indicator
         period (int, optional): The lookback period for the calculations. Defaults to 14.
-        این اندیکاتور برای تعیین وضعیت حالت دارای روند و بدون روند استفاده می شود.
+        این اندیکاتور برای تعیین وضعیت حالت دارای روند و بدون روند استفاده می شود. اگر شاخص کمتر از 25 بود ارزش ورود به معامله را ندارد.
         Returns:
         pandas.DataFrame: The DataFrame with additional columns named:
             - 'plus_di': Positive Directional Indicator (DI+) values.
             - 'minus_di': Negative Directional Indicator (DI-) values.
             - 'adx': Average Directional Movement Index (ADX) values.
         '''
-        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
+        df = self.atr(ticker, period)
+    
+        df['DMplus']=np.where((df['High']-df['High'].shift(1))>(df['Low'].shift(1)-df['Low']),df['High']-df['High'].shift(1),0)
+        df['DMplus']=np.where(df['DMplus']<0,0,df['DMplus'])    
+        df['DMminus']=np.where((df['Low'].shift(1)-df['Low'])>(df['High']-df['High'].shift(1)),df['Low'].shift(1)-df['Low'],0)
+        df['DMminus']=np.where(df['DMminus']<0,0,df['DMminus'])
 
-        # Calculate True Range (TR)
-        df['tr'] = df['High'] - df['Low']
-        df['tr'] = df[['tr', abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))]].max(axis=1)
+        TRn = []
+        DMplusN = []
+        DMminusN = []
+        TR = df['TR'].tolist()
+        DMplus = df['DMplus'].tolist()
+        DMminus = df['DMminus'].tolist()
+    
+        for i in range(len(df)):
+            if i < period:
+                TRn.append(np.NaN)
+                DMplusN.append(np.NaN)
+                DMminusN.append(np.NaN)
+            elif i == period:
+                TRn.append(df['TR'].rolling(period).sum().tolist()[period])
+                DMplusN.append(df['DMplus'].rolling(period).sum().tolist()[period])
+                DMminusN.append(df['DMminus'].rolling(period).sum().tolist()[period])
+            elif i > period:
+                TRn.append(TRn[i-1] - (TRn[i-1]/14) + TR[i])
+                DMplusN.append(DMplusN[i-1] - (DMplusN[i-1]/period) + DMplus[i])
+                DMminusN.append(DMminusN[i-1] - (DMminusN[i-1]/period) + DMminus[i])
+    
+        df['TRn'] = np.array(TRn)
+        df['DMplusN'] = np.array(DMplusN)
+        df['DMminusN'] = np.array(DMminusN)
+        df['DIplusN']=100*(df['DMplusN']/df['TRn'])
+        df['DIminusN']=100*(df['DMminusN']/df['TRn'])
+        df['DIdiff']=abs(df['DIplusN']-df['DIminusN'])
+        df['DIsum']=df['DIplusN']+df['DIminusN']
+        df['DX']=100*(df['DIdiff']/df['DIsum'])
+    
+        ADX = []
+        DX = df['DX'].tolist()
+    
+        for j in range(len(df)):
+            if j < 2* period-1:
+                ADX.append(np.NaN)
+            elif j == 2* period-1:
+                ADX.append(df['DX'][j- period+1:j+1].mean())
+            elif j > 2*period-1:
+                ADX.append(((period-1)*ADX[j-1] + DX[j])/period)
+    
+        df['ADX']=np.array(ADX)
 
-        # Calculate Average True Range (ATR)
-        df['atr'] = df['tr'].rolling(window=period).mean()
+        plt.figure(figsize=(16,8))
+        p1 = plt.subplot2grid((11,1), (0,0), rowspan = 5, colspan = 1)
+        p2 = plt.subplot2grid((11,1), (6,0), rowspan = 5, colspan = 1)
+        p1.plot(df['Close'], linewidth = 2, color = '#ff9800')
+        p1.set_title('CLOSING PRICE')
+        p2.plot(df['DIplusN'], color = '#26a69a', label = '+ DI', linewidth = 3, alpha = 0.3)
+        p2.plot(df['DIminusN'], color = '#f44336', label = '- DI', linewidth = 3, alpha = 0.3)
+        p2.plot(df['ADX'], color = '#2196f3', label = 'ADX', linewidth = 3)
+        p2.axhline(25, color = 'grey', linewidth = 2, linestyle = '--')
+        p2.legend()
+        p2.set_title('ADX Indicator')
+        plt.show()
 
-        # Calculate Positive Directional Indicator (DI+)
-        df['upmove'] = df['High'] - df['High'].shift(1)
-        df['upmove'] = df[['upmove', 0]].max(axis=1)
-        df['upmove'] = np.where(df['upmove'] > df['Low'] - df['Close'].shift(1), df['upmove'], 0)
-        df['plus_di'] = df['upmove'].rolling(window=period).mean() / df['atr']
-
-        # Calculate Negative Directional Indicator (DI-)
-        df['downmove'] = df['Low'].shift(1) - df['low']
-        df['downmove'] = df[['downmove', 0]].max(axis=1)
-        df['downmove'] = np.where(df['downmove'] > df['High'].shift(1) - df['Close'], df['downmove'], 0)
-        df['minus_di'] = df['downmove'].rolling(window=period).mean() / df['atr']
-
-        # Calculate Smoothed True Range (SMI)
-        df['smi'] = df['plus_di'] - df['minus_di']
-        df['smi'] = abs(df['smi']) * 100 / df['atr'].rolling(window=period - 1).mean()
-
-        # Calculate ADX
-        df['adx'] = df['smi'].rolling(window=period - 1).mean()
-
-        # Drop unnecessary columns
-        df.drop(columns=['tr', 'atr', 'upmove', 'downmove', 'smi'], inplace=True)
-        
-        self.temp_data=df.copy()
+        df.drop(["TR","DMplus","DMminus","TRn" ,"DMplusN","DMminusN","DIdiff","DIsum","DX"] , axis=1 , inplace=True)
+        df.dropna(inplace=True)
+        return df
     #********************************************************** On Balance Volume Indicator **************************
-    def OBV(self ,ticker):
+    def obv(self ,ticker):
         '''
         Calculate On Balance Volume Indicator
+        این اندیکاتور از نوع مومنتوم بوده و با بررسی حجم معاملات سیگنال می دهد
+        اگر بین خط این اندیکاتور و خط قیمت واگرایی وجود داشت یعنی بازار دارد برعکس می شود.
         '''
-        df=self.data[[ticker+"_volume",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_volume":"Volume",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
+        df=self.data[[ticker+"_volume",ticker+"_close",ticker+"_returns"]].copy()
+        df.rename(columns={ticker+"_volume":"Volume",ticker+"_close":"Close",ticker+"_returns":"returns"},inplace=True)
 
-        df['obv'] = 0
-        for i in range(1, len(df)):
-            if df.loc[i, 'Close'] > df.loc[i-1, 'Close']:
-                df.loc[i, 'obv'] = df.loc[i-1, 'obv'] + df.loc[i, 'Volume']
-            elif df.loc[i, 'Close'] < df.loc[i-1, 'Close']:
-                df.loc[i, 'obv'] = df.loc[i-1, 'obv'] - df.loc[i, 'Volume']
-            else:
-                df.loc[i, 'obv'] = df.loc[i-1, 'obv']
-        return df['obv']
+        df['direction'] = np.where(df['returns']>0 , 1 , -1)
+        df.loc[0, "direction"] = 0
+        df['adj_vol'] = df['Volume']*df['direction']
+        df['obv'] = df['adj_vol'].cumsum()
+        '''
+        plt.figure(figsize=(16,8))
+        p1 = plt.subplot2grid((11,1) , (0,0) , rowspan = 5 , colspan = 1)
+        p2 = plt.subplot2grid((11,1) , (6,0) , rowspan = 5 , colspan = 1)
 
+        p1.set_title('Closing Price')
+        p1.plot(df["Close"] , linewidth = 2 , label='Price' , color= '#ff9800')
+        p2.set_title('OBV Indicator')
+        p2.plot(df["obv"] , linewidth = 3 , label='OBV' , color= '#26a69a' , alpha = 0.3)
+        p1.legend()
+        p2.legend()
+        plt.show()
+        '''
+        return df
 
+    
 
 
     def test_strategies (self , ticker) :
