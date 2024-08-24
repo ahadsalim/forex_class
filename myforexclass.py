@@ -1,15 +1,12 @@
 import csv
-import MetaTrader5 as mt5
-import time
 import pandas as pd
 import numpy as np
-import ta.trend
+import ta
 import yfinance as yf
 import matplotlib.pyplot as plt
 from itertools import product
 import cufflinks as cf
 from plotly.offline import iplot
-import ta
 
 class forex_backtest_class():
     '''
@@ -89,6 +86,13 @@ class forex_backtest_class():
                 self.data[columns].plot (figsize=(15,12) , title=ticker , secondary_y=ticker+"_close")
         else:
             self.data[columns].plot (figsize=(15,12) ,title="Your Plot")
+
+    def count_months(self):
+        df=self.temp_data.copy()
+        df['year'] = df.index.year
+        df['month'] = df.index.month
+        num_months = df.groupby(['year', 'month']).size().count()
+        return num_months
 
     def get_perf_hold (self ,bar) :
         perf = self.temp_data.cum_return.iloc[bar]
@@ -183,9 +187,12 @@ class forex_backtest_class():
         self.units=0
         self.trades +=1
         perf = ((self.current_balance- self.initial_amount) /self.initial_amount) * 100
+        months=self.count_months()
+        cagr = ((self.current_balance / self.initial_amount) ** (1 / months)) - 1 
         print("{} | Performance (%) = {}".format(date,round(perf,2)))
         print("{} | Number of Trades = {}".format(date,self.trades))
         print("{} | Performance of Buy and Hold Stategy (%)= {}".format(date, self.get_perf_hold(bar)))
+        print("{} | The annual compound growth rate for {} months = {}".format(date,months,round(cagr,4)))
         return round(perf,2), self.trades,self.get_perf_hold(bar) , self.print_current_Balance(bar)
         
     def print_current_position (self , bar) :
@@ -213,46 +220,6 @@ class forex_backtest_class():
         print("{} | Net Asset Value of = {}".format(date , round(nav,2)))
 
 #****************************************************************** Calculate KPI of Portfolio *******************************
-    def CAGR(self, column_name, period=None , days=365):
-        '''
-        Calculates the Compound Annual Growth Rate (CAGR) for a DataFrame.
-        محاسبه نرخ رشد مرکب سالانه بر اساس تعداد روزهای کاری سال
-        Args:
-        column_name (str): The name of the column with Close or Adj_close.
-        period (int, optional): The number of years in the period. 
-        days (int, optional) : The number of days in a year. for FOREX= 252
-        
-        Returns:
-            float: The CAGR value.
-        '''
-        df= self.data.copy()
-        if column_name not in df.columns:
-            raise ValueError(f"Column '{column_name}' not found in the DataFrame.")
-
-        if len(df) < 2:
-            raise ValueError("The DataFrame must contain at least two data points.")
-
-        # Handle timestamps and period calculation
-        if pd.api.types.is_datetime64_dtype(df.index):
-            if not period:
-                # Calculate period based on time difference between first and last timestamps
-                period = (df.index[-1] - df.index[0]) / pd.Timedelta(days)
-            else:
-                # Ensure timestamps cover the specified period
-                if (df.index[-1] - df.index[0]) < pd.Timedelta(years=period):
-                    raise ValueError(f"Insufficient data for a {period}-year period. Data covers less time.")
-        else:
-            # Assume non-datetime index, use period directly if provided
-            if not period:
-                raise ValueError("Period required for non-datetime index.")
-
-        # Calculate CAGR
-        start_value = df[column_name].iloc[0]
-        end_value = df[column_name].iloc[-1]
-        cagr = ((end_value / start_value) ** (1 / period)) - 1
-
-        return cagr
-
     def volatility(self , column_name, period=365):
         '''
         Calculates the annualized volatility.
@@ -409,6 +376,7 @@ class forex_backtest_class():
         df["str_net"]= df.str_sma - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         df.dropna(inplace=True)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
@@ -1149,7 +1117,6 @@ class forex_backtest_class():
 
     
 
-
     def test_strategies (self , ticker) :
         #intervals = ["1m","2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
         intervals = ["1h", "1d"]
@@ -1187,4 +1154,3 @@ class forex_backtest_class():
                 
                 print("{} intervals was done".format(interv))
         print("The Operation is over !")       
-
