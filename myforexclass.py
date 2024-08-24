@@ -380,7 +380,7 @@ class forex_backtest_class():
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
-    def best_sma(self , ticker):
+    def best_param_sma(self , ticker):
         '''
         It examines the SMA strategy and declares the best short and long time periods with a higher profit target.
         '''
