@@ -25,7 +25,7 @@ class forex_backtest_class():
         '''
         return "Forex (start={} , end={} , interval={} )".format(self.start,self.end, self.interval)
     
-    def __init__ (self ,tickers , start ,end ,interval , spread , amount , source=""):
+    def __init__ (self ,tickers , start ,end ,interval , spread=0 , amount=0 , source=""):
         self.source= source
         self.tickers = tickers
         self.start= start
@@ -75,6 +75,7 @@ class forex_backtest_class():
                 
         data.dropna(inplace=True)
         self.data=data.copy()
+        self.temp_data=data.copy()
     
     def plot_data (self , columns=None) :
         '''
@@ -364,8 +365,8 @@ class forex_backtest_class():
         '''
         Calculate Simple Moving Average Strategy
         '''
-        df=self.data[[ticker+"_close",ticker+"_returns"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns"},inplace=True)
+        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
+        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
         
         df["sma_s"]=df.Close.rolling(short).mean() #calculate average of short period
         df["sma_l"]=df.Close.rolling(long).mean()
@@ -451,10 +452,11 @@ class forex_backtest_class():
         df["str_net"]= df.str_sma - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         df.dropna(inplace=True)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
 
-    def best_ema(self , ticker):
+    def best_param_ema(self , ticker):
         '''
         It examines the EMA strategy and declares the best short and long time periods with a higher profit target.
         '''
@@ -525,10 +527,11 @@ class forex_backtest_class():
         df["str_net"]= df.str_dema - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         df.dropna(inplace=True)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
-    def best_dema(self , ticker):
+    def best_param_dema(self , ticker):
         '''
         It examines the DEMA strategy and declares the best short and long time periods with a higher profit target.
         '''
@@ -613,11 +616,12 @@ class forex_backtest_class():
         df["str_rsi"]= df.pos.shift(1)* df.returns
         df["str_net"]= df.str_rsi - (df.trades * (self.spread/2))
         df.dropna(inplace=True)
+        self.temp_data=df.copy()
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
 
-    def best_rsi(self , ticker):
+    def best_param_rsi(self , ticker):
         '''
         It examines the RSI strategy and declares the best period and up and down moving average with a higher profit target.
         '''
