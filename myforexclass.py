@@ -378,6 +378,7 @@ class forex_backtest_class():
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         df.dropna(inplace=True)
         self.temp_data=df.copy()
+        print(df["trades"].sum())
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
@@ -1121,43 +1122,3 @@ class forex_backtest_class():
         plt.show()
         '''
         return df
-
-    
-
-    def test_strategies (self , ticker) :
-        #intervals = ["1m","2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"]
-        intervals = ["1h", "1d"]
-        report=["Ticker","Interval","Strategy","Best_Param","Num_Trades","Perf_Hold","Perf_Strategy","Current_Balance"]
-        filename= ticker+"_report.csv"
-        with open(filename, 'w', newline='') as csv_file:
-            csv_writer = csv.writer(csv_file)
-            csv_writer.writerow(report)
-            for interv in intervals :
-                self.interval = interv
-                self.get_data(ticker)
-                sma=self.best_sma()
-                summary_sma=self.sma_strategy(sma[0],sma[1])
-                csv_writer.writerow([ticker ,interv ,"SMA", str(sma) ,str(summary_sma[1]), str(summary_sma[2]) , str(summary_sma[0]) , str(summary_sma[3])])
-
-                ema = self.best_ema()
-                summary_ema= self.ema_strategy (ema[0],ema[1])
-                csv_writer.writerow([ticker ,interv ,"EMA", str(ema) ,str(summary_ema[1]), str(summary_ema[2]) , str(summary_ema[0]) , str(summary_ema[3])])
-
-                macd= self.best_macd()
-                summary_macd = self.macd_strategy(macd[0],macd[1], macd[2])
-                csv_writer.writerow([ticker ,interv ,"MACD", str(macd) ,str(summary_macd[1]), str(summary_macd[2]) , str(summary_macd[0]) , str(summary_macd[3])])
-
-                rsi = self.best_rsi()
-                summary_rsi = self.rsi_strategy(rsi[0],rsi[1],rsi[2])
-                csv_writer.writerow([ticker ,interv ,"RSI", str(rsi) ,str(summary_rsi[1]), str(summary_rsi[2]) , str(summary_rsi[0]) , str(summary_rsi[3])])
-
-                boll= self.best_bollinger()
-                summary_boll= self.bollinger_strategy(boll[0],boll[1])
-                csv_writer.writerow([ticker ,interv ,"Bollinger Band", str(boll) ,str(summary_boll[1]), str(summary_boll[2]) , str(summary_boll[0]) , str(summary_boll[3])])
-
-                stochastic = self.best_stochastic()
-                summary_stochastic = self.stochastic_strategy(stochastic[0],stochastic[1])
-                csv_writer.writerow([ticker ,interv ,"Stochastic", str(stochastic) ,str(summary_stochastic[1]), str(summary_stochastic[2]) , str(summary_stochastic[0]) , str(summary_stochastic[3])])
-                
-                print("{} intervals was done".format(interv))
-        print("The Operation is over !")
