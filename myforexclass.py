@@ -701,10 +701,11 @@ class forex_backtest_class():
         df["str_macd"]= df.pos.shift(1)* df.returns
         df["str_net"]= df.str_macd - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
 
-    def best_macd(self , ticker):
+    def best_param_macd(self , ticker):
         '''
         It examines the MACD strategy and declares the best short and long and signal time periods with a higher profit target.
         '''
@@ -790,10 +791,11 @@ class forex_backtest_class():
         df["str_net"]= df.str_boll - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
         df.dropna(inplace=True)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
-    def best_bollinger(self ,ticker):
+    def best_param_bollinger(self ,ticker):
         '''
         It examines the Bollinger Band strategy and declares the best SMA and Deviation with a higher profit target.
         '''
@@ -879,10 +881,11 @@ class forex_backtest_class():
         df["str_net"]= df.str_stochastic - (df.trades * (self.spread/2))
         df.dropna(inplace=True)
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
+        self.temp_data=df.copy()
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
-    def best_stochastic(self ,ticker):
+    def best_param_stochastic(self ,ticker):
         '''
         It examines the Stochastic strategy and declares the best K and D with a higher profit target.
         '''
@@ -1157,4 +1160,4 @@ class forex_backtest_class():
                 csv_writer.writerow([ticker ,interv ,"Stochastic", str(stochastic) ,str(summary_stochastic[1]), str(summary_stochastic[2]) , str(summary_stochastic[0]) , str(summary_stochastic[3])])
                 
                 print("{} intervals was done".format(interv))
-        print("The Operation is over !")       
+        print("The Operation is over !")
