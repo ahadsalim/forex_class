@@ -189,7 +189,7 @@ class forex_backtest_class():
         price1=price
         price -= self.spread/2
         self.trades +=1
-        print ("{} Closing Position {} for {} with {} spread. Net price is {} and current balance is {}".format(date,self.units,round(price1,5),self.spread,round(price,5),self.current_balance))
+        print ("{} Closing Position {} for {} with {} spread. Net price is {} and current balance is {}".format(date,self.units,round(price1,5),self.spread,round(price,5),round(self.current_balance,2)))
         
         print(75 * "-")
         print("*** Summary of trading : {} ***".format(ticker))
@@ -377,17 +377,15 @@ class forex_backtest_class():
         
         df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
         df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
-        #df.dropna(inplace=True)
+        df.dropna(inplace=True)
         df["pos"]=0
         df["pos"]= np.where(df.SMA_S>df.SMA_L , 1 , -1) # position of buy (1) or sell (-1)
         df["trades"]= df.pos.diff().fillna(0).abs()
         df["str_sma"]= df.pos.shift(1)* df.returns
         df["str_net"]= df.str_sma - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
-        #df.dropna(inplace=True)
+        df.dropna(inplace=True)
         self.temp_data=df.copy()
-        print(df)
-        print(df["trades"].sum())
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
     
@@ -419,7 +417,6 @@ class forex_backtest_class():
         '''
         print("Testing SMA Strategy | {} | SMA_S= {} | SMA_L= {}".format(ticker , SMA_S,SMA_L))
         print(75 * "-")
-
         self.position=0
         self.trades=0
         print ("Initial amount is : {}".format(self.initial_amount))
@@ -427,7 +424,6 @@ class forex_backtest_class():
         
         df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
         df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
         df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
         df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
         df.dropna(inplace =True)
@@ -446,17 +442,17 @@ class forex_backtest_class():
         return summary
 
     # ************************************************* Exponential Moving Average ******************************************
-    def ema(self , ticker , short , long) :
+    def ema(self , ticker , EMA_S , EMA_L) :
         '''
         Calculate Exponential Moving Average Strategy
         '''
         df=self.data[[ticker+"_close",ticker+"_returns"]].copy()
         df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns"},inplace=True)
 
-        df["ema_s"]=df.Close.ewm(span=short , min_periods= short).mean() #calculate average of short period
-        df["ema_l"]=df.Close.ewm(span=long , min_periods= long).mean()
+        df["EMA_S"] = df["Close"].ewm(span=EMA_S , min_periods= EMA_S).mean()
+        df["EMA_L"] = df["Close"].ewm(span=EMA_L , min_periods= EMA_L).mean()
         df.dropna(inplace=True)
-        df["pos"]= np.where(df.ema_s>df.ema_l,1,-1) # position of buy (1) or sell (-1)
+        df["pos"]= np.where(df.EMA_S>df.EMA_L,1,-1) # position of buy (1) or sell (-1)
         df["trades"]= df.pos.diff().fillna(0).abs()
         df["str_sma"]= df.pos.shift(1)* df.returns
         df["str_net"]= df.str_sma - (df.trades * (self.spread/2))
