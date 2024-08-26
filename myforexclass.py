@@ -96,12 +96,15 @@ class forex_backtest_class():
         return num_months
 
     def get_perf_hold (self ,bar) :
+        '''
+        Calculate perfrmance based on return
+        '''
         perf = self.temp_data.cum_return.iloc[bar]
         perf = round((perf -1 ) * 100 ,2)
         return perf
         
     def get_values(self ,bar):
-        date= str(self.temp_data.index[bar].date())
+        date= str(self.temp_data.index[bar].strftime('%Y-%m-%d %H:%M:%S'))
         price= round(self.temp_data.Close.iloc[bar], 5)
         return date , price
 
@@ -131,14 +134,15 @@ class forex_backtest_class():
         !!! One of units or amount must have value !!!
         '''
         if self.position == -1 :
-            self.buy_instrument(bar , units= -self.units)
-            print ("** Closed last short position !")
-        if units:
-            self.buy_instrument(bar, units= units)
-        elif amount:
-            if amount== "all" :
-                amount = self.current_balance
-            self.buy_instrument(bar , amount= amount)
+            self.buy_instrument(bar , units= -self.units *2)
+            
+        elif self.position == 0 :
+            if units:
+                self.buy_instrument(bar, units= units)
+            elif amount:
+                if amount== "all" :
+                    amount = self.current_balance
+                self.buy_instrument(bar , amount= amount)
 
     def sell_instrument(self , bar , units=None , amount=None):
         '''
@@ -166,14 +170,14 @@ class forex_backtest_class():
         !!! One of units or amount must have value !!!
         '''
         if self.position == 1 :
-            self.sell_instrument(bar , units= self.units)
-            print ("** Closed last long position !")
-        if units:
-            self.sell_instrument(bar , units= units)
-        elif amount:
-            if amount== "all" :
-                amount = self.current_balance
-            self.sell_instrument(bar , amount= amount)
+            self.sell_instrument(bar , units= self.units *2)
+        elif self.position == 0 :
+            if units:
+                self.sell_instrument(bar , units= units)
+            elif amount:
+                if amount== "all" :
+                    amount = self.current_balance
+                self.sell_instrument(bar , amount= amount)
 
     def close_position(self,ticker , bar) :
         '''
@@ -182,11 +186,14 @@ class forex_backtest_class():
         date , price = self.get_values(bar)
         self.current_balance += self.units * price
         self.current_balance -= abs(self.units) * self.spread/2
+        price1=price
+        price -= self.spread/2
+        self.trades +=1
+        print ("{} Closing Position {} for {} with {} spread. Net price is {} and current balance is {}".format(date,self.units,round(price1,5),self.spread,round(price,5),self.current_balance))
+        
         print(75 * "-")
         print("*** Summary of trading : {} ***".format(ticker))
-        print("{} | Closing position of {} for {}".format(date,self.units,price))
         self.units=0
-        self.trades +=1
         perf = ((self.current_balance- self.initial_amount) /self.initial_amount) * 100
         months=self.count_months()
         cagr = ((self.current_balance / self.initial_amount) ** (1 / months)) - 1 
@@ -361,23 +368,25 @@ class forex_backtest_class():
 #********************************************************** Technical Stategies *************************************
 
     # ***************************************************** Simple Moving Average ***********************************
-    def sma(self , ticker ,short , long) :
+    def sma(self , ticker ,SMA_S ,SMA_L) :
         '''
         Calculate Simple Moving Average Strategy
         '''
         df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
         df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
         
-        df["sma_s"]=df.Close.rolling(short).mean() #calculate average of short period
-        df["sma_l"]=df.Close.rolling(long).mean()
-        df.dropna(inplace=True)
-        df["pos"]= np.where(df.sma_s>df.sma_l,1,-1) # position of buy (1) or sell (-1)
+        df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
+        df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
+        #df.dropna(inplace=True)
+        df["pos"]=0
+        df["pos"]= np.where(df.SMA_S>df.SMA_L , 1 , -1) # position of buy (1) or sell (-1)
         df["trades"]= df.pos.diff().fillna(0).abs()
         df["str_sma"]= df.pos.shift(1)* df.returns
         df["str_net"]= df.str_sma - (df.trades * (self.spread/2))
         df["cum_str_net"] = df.str_net.cumsum().apply(np.exp)
-        df.dropna(inplace=True)
+        #df.dropna(inplace=True)
         self.temp_data=df.copy()
+        print(df)
         print(df["trades"].sum())
         perf = round(df["cum_str_net"].iloc[-1] , 5)
         return perf
