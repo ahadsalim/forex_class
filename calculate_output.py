@@ -7,10 +7,14 @@ end_year = 2024
 end_month = 6
 interval = "1h"
 tickers=["ETH-USD"]
-result_data = mf.pd.DataFrame(columns=["date","ticker","return_hold","short_sma","long_sma","return_sma","short_ema","long_ema","return_ema",
-                                       "short_dema","long_dema","return_dema","rsi_period","rsi_m_down","rsi_m_up","return_rsi",
-                                       "macd_s","macd_l","macd_signal","return_macd","sma_bollinger","dev_bollinger","return_bollinger",
-                                       "stoc_k","stoc_d","retun_stochastic"])
+result_data = mf.pd.DataFrame(columns=["date","ticker","return_hold",
+                                       "short_sma","long_sma","trade_sma","return_sma",
+                                       "short_ema","long_ema","trade_ema","return_ema",
+                                       "short_dema","long_dema","trade_dema","return_dema",
+                                       "rsi_period","rsi_m_down","rsi_m_up","trade_rsi","return_rsi",
+                                       "macd_s","macd_l","macd_signal","trade_macd","return_macd",
+                                       "sma_bollinger","dev_bollinger","trade_bollinger","return_bollinger",
+                                       "stoc_k","stoc_d","trade_bollinger","retun_stochastic"])
 
 # حلقه برای دریافت داده‌های هر ماه
 year = start_year
@@ -30,30 +34,35 @@ for ticker in tickers :
         t = mf.forex_backtest_class([ticker],start_month_date , end_month_date , interval )
         #******************************** SMA
         (s_sma,l_sma)= t.best_param_sma(ticker)
-        r_sma=t.sma(ticker,s_sma,l_sma)
-        r_h=t.get_perf_hold(-1)
+        out_sma=t.sma_backtest(ticker,s_sma,l_sma)
         #******************************* EMA
         (s_ema,l_ema)= t.best_param_ema(ticker)
-        r_ema=t.ema(ticker,s_ema,l_ema)
+        out_ema=t.ema_backtest(ticker,s_ema,l_ema)
         #******************************* DMA
         (s_dema,l_dema)= t.best_param_dema(ticker)
-        r_dema=t.dema(ticker,s_dema,l_dema)
+        out_dema=t.dema(ticker,s_dema,l_dema)
         #******************************* RSI
         (p_rsi,d_rsi,u_rsi)= t.best_param_rsi(ticker)
-        r_rsi=t.rsi(ticker,p_rsi,d_rsi,u_rsi)
+        out_rsi=t.rsi(ticker,p_rsi,d_rsi,u_rsi)
         #******************************* MACD
         (s_macd,l_macd,signal_macd)= t.best_param_macd(ticker)
-        r_macd=t.macd(ticker,s_macd,l_macd,signal_macd)
+        out_macd=t.macd(ticker,s_macd,l_macd,signal_macd)
         #******************************* Bollinger
         (sma_bol,dev_bol)= t.best_param_bollinger(ticker)
-        r_bol=t.bollinger(ticker,sma_bol,dev_bol)
+        out_bol=t.bollinger(ticker,sma_bol,dev_bol)
         #******************************* Stochastic
         (k_stoc,d_stoc)= t.best_param_stochastic(ticker)
-        r_stoc=t.stochastic(ticker,k_stoc,d_stoc)
+        out_stoc=t.stochastic(ticker,k_stoc,d_stoc)
         
         
-        new_row = mf.pd.Series([end_month_date,ticker ,r_h,s_sma, l_sma, r_sma,s_ema,l_ema,r_ema,s_dema,l_dema,r_dema,p_rsi,d_rsi,u_rsi,r_rsi,
-                                s_macd,l_macd,signal_macd,r_macd,sma_bol,dev_bol,r_bol,k_stoc,d_stoc,r_stoc], index=result_data.columns)
+        new_row = mf.pd.Series([end_month_date,ticker ,out_sma[2],
+                                s_sma, l_sma, out_sma[1],out_sma[0],
+                                s_ema,l_ema,out_ema[1],out_ema[0],
+                                s_dema,l_dema,out_dema[1],out_dema[0],
+                                p_rsi,d_rsi,u_rsi,out_rsi[1],out_rsi[0],
+                                s_macd,l_macd,signal_macd,out_macd[1],out_macd[0],
+                                sma_bol,dev_bol,out_bol[1],out_bol[0],
+                                k_stoc,d_stoc,out_stoc[1],out_stoc[0]], index=result_data.columns)
         result_data = mf.pd.concat([result_data, new_row.to_frame().T], ignore_index=True)
 
 result_data.set_index('date', inplace=True)
