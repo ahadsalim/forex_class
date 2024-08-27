@@ -14,7 +14,8 @@ result_data = mf.pd.DataFrame(columns=["date","ticker","return_hold",
                                        "rsi_period","rsi_m_down","rsi_m_up","trade_rsi","return_rsi",
                                        "macd_s","macd_l","macd_signal","trade_macd","return_macd",
                                        "sma_bollinger","dev_bollinger","trade_bollinger","return_bollinger",
-                                       "stoc_k","stoc_d","trade_bollinger","retun_stochastic"])
+                                       "stoc_k","stoc_d","trade_bollinger","retun_stochastic",
+                                       "trade_Ichimoku , return_Ichimoku"])
 
 # حلقه برای دریافت داده‌های هر ماه
 year = start_year
@@ -40,20 +41,21 @@ for ticker in tickers :
         out_ema=t.ema_backtest(ticker,s_ema,l_ema)
         #******************************* DMA
         (s_dema,l_dema)= t.best_param_dema(ticker)
-        out_dema=t.dema(ticker,s_dema,l_dema)
+        out_dema=t.dema_backtest(ticker,s_dema,l_dema)
         #******************************* RSI
         (p_rsi,d_rsi,u_rsi)= t.best_param_rsi(ticker)
-        out_rsi=t.rsi(ticker,p_rsi,d_rsi,u_rsi)
+        out_rsi=t.rsi_backtest(ticker,p_rsi,d_rsi,u_rsi)
         #******************************* MACD
         (s_macd,l_macd,signal_macd)= t.best_param_macd(ticker)
-        out_macd=t.macd(ticker,s_macd,l_macd,signal_macd)
+        out_macd=t.macd_backtest(ticker,s_macd,l_macd,signal_macd)
         #******************************* Bollinger
         (sma_bol,dev_bol)= t.best_param_bollinger(ticker)
-        out_bol=t.bollinger(ticker,sma_bol,dev_bol)
+        out_bol=t.bollinger_backtest(ticker,sma_bol,dev_bol)
         #******************************* Stochastic
         (k_stoc,d_stoc)= t.best_param_stochastic(ticker)
-        out_stoc=t.stochastic(ticker,k_stoc,d_stoc)
-        
+        out_stoc=t.stochastic_backtest(ticker,k_stoc,d_stoc)
+        #******************************* Ichimuko
+        out_ichi= t.ichimoku_backtest(ticker)
         
         new_row = mf.pd.Series([end_month_date,ticker ,out_sma[2],
                                 s_sma, l_sma, out_sma[1],out_sma[0],
@@ -62,7 +64,9 @@ for ticker in tickers :
                                 p_rsi,d_rsi,u_rsi,out_rsi[1],out_rsi[0],
                                 s_macd,l_macd,signal_macd,out_macd[1],out_macd[0],
                                 sma_bol,dev_bol,out_bol[1],out_bol[0],
-                                k_stoc,d_stoc,out_stoc[1],out_stoc[0]], index=result_data.columns)
+                                k_stoc,d_stoc,out_stoc[1],out_stoc[0],
+                                out_ichi[1],out_ichi[0]]
+                                , index=result_data.columns)
         result_data = mf.pd.concat([result_data, new_row.to_frame().T], ignore_index=True)
 
 result_data.set_index('date', inplace=True)
