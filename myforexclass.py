@@ -77,6 +77,11 @@ class forex_backtest_class():
         self.data=data.copy()
         self.temp_data=data.copy()
     
+    def rename_columns_df(self,ticker) :
+        df=self.data[[ticker+"_open",ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
+        df.rename(columns={ticker+"_open":"Open",ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
+        return df
+
     def plot_data (self , columns=None) :
         '''
         columns = ['col1','col2',...]
@@ -372,9 +377,7 @@ class forex_backtest_class():
         '''
         Calculate Simple Moving Average Strategy
         '''
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-        
+        df=self.rename_columns_df(ticker)
         df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
         df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
         df.dropna(inplace=True)
@@ -409,7 +412,7 @@ class forex_backtest_class():
             results.append(self.sma(ticker , c[0] , c[1]))
         return couple[np.argmax(results)]
     
-    def sma_backtest(self, ticker ,SMA_S ,SMA_L ):
+    def sma_backtest(self, ticker ,SMA_S ,SMA_L , check_adx="False"):
         '''
         Back testing for SMA 
         SMA_S : Short period simple moving average 
@@ -422,19 +425,23 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
+        df=self.rename_columns_df(ticker)
         df["SMA_S"] = df["Close"].rolling(SMA_S).mean()
         df["SMA_L"] = df["Close"].rolling(SMA_L).mean()
         df.dropna(inplace =True)
         self.temp_data=df.copy()
-
+        
         for bar in range(len(df)-1) :
-            if df["SMA_S"].iloc[bar] > df["SMA_L"].iloc[bar] :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
+
+            if df["SMA_S"].iloc[bar] > df["SMA_L"].iloc[bar] and adx>25 :
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
                     self.position =1
-            if df["SMA_S"].iloc[bar] < df["SMA_L"].iloc[bar] :
+            if df["SMA_S"].iloc[bar] < df["SMA_L"].iloc[bar] and adx>25 :
                 if self.position in [0,1] :
                     self.go_short(bar , amount="all")
                     self.position = -1
@@ -446,9 +453,7 @@ class forex_backtest_class():
         '''
         Calculate Exponential Moving Average Strategy
         '''
-        df=self.data[[ticker+"_close",ticker+"_returns"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["EMA_S"] = df["Close"].ewm(span=EMA_S , min_periods= EMA_S).mean()
         df["EMA_L"] = df["Close"].ewm(span=EMA_L , min_periods= EMA_L).mean()
         df.dropna(inplace=True)
@@ -482,7 +487,7 @@ class forex_backtest_class():
             results.append(self.ema(ticker , c[0] , c[1]))
         return couple[np.argmax(results)]
 
-    def ema_backtest(self ,ticker , EMA_S ,EMA_L ):
+    def ema_backtest(self ,ticker , EMA_S ,EMA_L ,check_adx="False"):
         '''
         Back testing for EMA 
         EMA_S : Short period exponential moving average 
@@ -496,20 +501,22 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["EMA_S"] = df["Close"].ewm(span=EMA_S , min_periods= EMA_S).mean()
         df["EMA_L"] = df["Close"].ewm(span=EMA_L , min_periods= EMA_L).mean()
         df.dropna(inplace =True)
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
-            if df["EMA_S"].iloc[bar] > df["EMA_L"].iloc[bar] :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
+            if df["EMA_S"].iloc[bar] > df["EMA_L"].iloc[bar] and adx>25:
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
                     self.position =1
-            if df["EMA_S"].iloc[bar] < df["EMA_L"].iloc[bar] :
+            if df["EMA_S"].iloc[bar] < df["EMA_L"].iloc[bar] and adx>25:
                 if self.position in [0,1] :
                     self.go_short(bar , amount="all")
                     self.position = -1
@@ -518,9 +525,10 @@ class forex_backtest_class():
 
     #*************************************************** Double Exponential Moving Average strategy ******************
     def dema( self , ticker ,short , long ):
-        df=self.data[[ticker+"_close",ticker+"_returns"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns"},inplace=True)
-
+        '''
+        Calculate Double Exponential Moving Average Strategy
+        '''
+        df=self.rename_columns_df(ticker)
         df["returns"]= np.log(df.Close.div(df.Close.shift(1)))
         df.dropna(inplace=True)
         EMA = df["Close"].ewm(span=short , adjust = False).mean()
@@ -554,7 +562,7 @@ class forex_backtest_class():
             results.append(self.dema(ticker ,c[0],c[1]))
         return couple[np.argmax(results)]
 
-    def dema_backtest(self ,ticker , short ,long ):
+    def dema_backtest(self ,ticker , short ,long ,check_adx="False"):
         '''
         Back testing for DEMA 
         short : Short period exponential moving average 
@@ -568,9 +576,7 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["returns"]= np.log(df.Close.div(df.Close.shift(1)))
         df.dropna(inplace=True)
         EMA = df["Close"].ewm(span=short , adjust = False).mean()
@@ -586,11 +592,15 @@ class forex_backtest_class():
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
-            if df["DEMA_S"].iloc[bar] > df["DEMA_L"].iloc[bar] :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
+            if df["DEMA_S"].iloc[bar] > df["DEMA_L"].iloc[bar] and adx>25:
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
                     self.position =1
-            if df["DEMA_S"].iloc[bar] < df["DEMA_L"].iloc[bar] :
+            if df["DEMA_S"].iloc[bar] < df["DEMA_L"].iloc[bar] and adx>25:
                 if self.position in [0,1] :
                     self.go_short(bar , amount="all")
                     self.position = -1
@@ -601,9 +611,7 @@ class forex_backtest_class():
         '''
         Calculate Relative Strength Index
         '''
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["returns"]= np.log(df.Close.div(df.Close.shift(1)))
         df.dropna(inplace=True)
         df["UP"]= np.where( df.Close.diff() > 0 , df.Close.diff() , 0) # Height of Green candle (diffrence between last price and before)
@@ -648,7 +656,7 @@ class forex_backtest_class():
         else : 
             return "There is no position to trade !"
         
-    def rsi_backtest(self , ticker ,period ,ma_down , ma_up ):
+    def rsi_backtest(self , ticker ,period ,ma_down , ma_up ,check_adx="False"):
         '''
         Back testing for RSI 
         period : 
@@ -662,9 +670,7 @@ class forex_backtest_class():
         self.trades=0
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["returns"]= np.log(df.Close.div(df.Close.shift(1)))
         df.dropna(inplace=True)
         df["UP"]= np.where( df.Close.diff() > 0 , df.Close.diff() , 0) # Height of Green candle (diffrence between last price and before)
@@ -678,6 +684,10 @@ class forex_backtest_class():
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
             if df["RSI"].iloc[bar] < rsi_down :
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
@@ -694,9 +704,7 @@ class forex_backtest_class():
         '''
         Calculate Moving average convergence/divergence Strategy
         '''
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["EMA_S"] = df["Close"].ewm(span=EMA_S , min_periods= EMA_S).mean()
         df["EMA_L"] = df["Close"].ewm(span=EMA_L , min_periods= EMA_L).mean()
         df["MACD"]= df["EMA_S"] - df["EMA_L"]
@@ -732,7 +740,7 @@ class forex_backtest_class():
         else : 
             return "There is no position to trade !"
 
-    def macd_backtest(self ,ticker , EMA_S ,EMA_L , Signal):
+    def macd_backtest(self ,ticker , EMA_S ,EMA_L , Signal ,check_adx="False"):
         '''
         Back testing for MACD 
         EMA_S : Short period exponential moving average 
@@ -747,9 +755,7 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["EMA_S"] = df["Close"].ewm(span=EMA_S , min_periods= EMA_S).mean()
         df["EMA_L"] = df["Close"].ewm(span=EMA_L , min_periods= EMA_L).mean()
         df["MACD"]= df["EMA_S"] - df["EMA_L"]
@@ -758,11 +764,15 @@ class forex_backtest_class():
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
-            if df["MACD"].iloc[bar] - df["MACD_Signal"].iloc[bar] > 0 :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
+            if df["MACD"].iloc[bar] - df["MACD_Signal"].iloc[bar] > 0 and adx>25 :
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
                     self.position =1
-            if df["MACD"].iloc[bar] - df["MACD_Signal"].iloc[bar] < 0 :
+            if df["MACD"].iloc[bar] - df["MACD_Signal"].iloc[bar] < 0 and adx>25 :
                 if self.position in [0,1] :
                     self.go_short(bar , amount="all")
                     self.position = -1
@@ -779,9 +789,7 @@ class forex_backtest_class():
         '''
         self.position=0
         self.trades=0
-        
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
+        df=self.rename_columns_df(ticker)
         # می توان بجای قیمت بسته شدن میانگین قیمت بالا و پایین و بسته شدن را هم گذاشت.
         df["sma"]=df.Close.rolling(sma).mean()
         df["lower"]= df["sma"] - dev * df["Close"].rolling(sma).std()
@@ -817,7 +825,7 @@ class forex_backtest_class():
             results.append(self.bollinger(ticker ,c[0],c[1]))
         return couple[np.argmax(results)]
         
-    def bollinger_backtest (self, ticker ,SMA , dev): # ************** شروط معامله دوباره کنترل شود. مشکل دارد خرید با مقدار منفی انجام می دهد
+    def bollinger_backtest (self, ticker ,SMA , dev ,check_adx="False"): # ************** شروط معامله دوباره کنترل شود. مشکل دارد خرید با مقدار منفی انجام می دهد
         '''
         Back Testing for Bollinger bands strategy
         '''
@@ -828,9 +836,7 @@ class forex_backtest_class():
         self.trades=0
         self.current_balance=self.initial_amount
         
-        df=self.data[[ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["SMA"] = df.Close.rolling(SMA).mean()
         df["Lower"] = df["SMA"]- df.Close.rolling(SMA).std() * dev
         df["Upper"] = df["SMA"]+ df.Close.rolling(SMA).std() * dev
@@ -838,16 +844,20 @@ class forex_backtest_class():
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
             if self.position ==0 :
-                if df["Close"].iloc[bar] < df["Lower"].iloc[bar] :
+                if df["Close"].iloc[bar] < df["Lower"].iloc[bar] and adx>25:
                     self.go_long (bar , amount="all")
                     self.position = 1
-                elif df["Close"].iloc[bar] > df["Upper"].iloc[bar] :
+                elif df["Close"].iloc[bar] > df["Upper"].iloc[bar] and adx>25:
                     self.go_short (bar , amount="all")
                     self.position = -1
             
             elif self.position ==1 :
-                if df["Close"].iloc[bar] > df["SMA"].iloc[bar] :
+                if df["Close"].iloc[bar] > df["SMA"].iloc[bar] and adx>25:
                     if df["Close"].iloc[bar] > df["Upper"].iloc[bar]:
                         self.go_short (bar , amount="all")
                         self.position = -1
@@ -856,7 +866,7 @@ class forex_backtest_class():
                         self.position=0
             
             elif self.position == -1 :            
-                if df["Close"].iloc[bar] < df["SMA"].iloc[bar] :
+                if df["Close"].iloc[bar] < df["SMA"].iloc[bar] and adx>25 :
                     if df["Close"].iloc[bar] < df["Lower"].iloc[bar]:
                         self.go_long (bar , amount="all")
                         self.position = 1
@@ -873,9 +883,7 @@ class forex_backtest_class():
         Calculate Stochastic Oscilator
         '''
         
-        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["roll_low"]= df.Low.rolling(int(K)).min()
         df["roll_high"] = df.High.rolling(int(K)).max() 
         df["K"]= (df.Close - df.roll_low) / (df.roll_high - df.roll_low) * 100
@@ -907,7 +915,7 @@ class forex_backtest_class():
         else : 
             return "There is no position to trade !"
         
-    def stochastic_backtest(self ,ticker , K, D ):
+    def stochastic_backtest(self ,ticker , K, D ,check_adx="False"):
         '''
         Back testing for Stochastic
         K : 
@@ -921,9 +929,7 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         df["roll_low"]= df.Low.rolling(int(K)).min()
         df["roll_high"] = df.High.rolling(int(K)).max() 
         df["K"]= (df.Close - df.roll_low) / (df.roll_high - df.roll_low) * 100
@@ -932,11 +938,15 @@ class forex_backtest_class():
         self.temp_data=df.copy()
 
         for bar in range(len(df)-1) :
-            if df["K"].iloc[bar] > df["D"].iloc[bar] :
+            if check_adx :
+                adx= self.adx(bar=bar)
+            else :
+                adx=26 # Always under 25
+            if df["K"].iloc[bar] > df["D"].iloc[bar] and adx>25 :
                 if self.position in [0,-1] :
                     self.go_long(bar , amount="all")
                     self.position =1
-            if df["K"].iloc[bar] < df["D"].iloc[bar] :
+            if df["K"].iloc[bar] < df["D"].iloc[bar] and adx>25 :
                 if self.position in [0,1] :
                     self.go_short(bar , amount="all")
                     self.position = -1
@@ -945,9 +955,7 @@ class forex_backtest_class():
     
     def ichimoku (self , ticker) :
 
-        df=self.data[[ticker+"_high",ticker+"_low",ticker+"_returns"]].copy()
-        df.rename(columns={ticker+"_high":"High",ticker+"_low":"Low",ticker+"_returns":"returns"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         ich=ta.trend.IchimokuIndicator(df["High"],df["Low"],9,26,52,False,True)
         df["span_a"]=ich.ichimoku_a()
         df["span_b"]=ich.ichimoku_b()
@@ -973,9 +981,7 @@ class forex_backtest_class():
         print ("Initial amount is : {}".format(self.initial_amount))
         self.current_balance = self.initial_amount
         
-        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close",ticker+"_returns",ticker+"_cum_return"]].copy()
-        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close",ticker+"_returns":"returns",ticker+"_cum_return":"cum_return"},inplace=True)
-
+        df=self.rename_columns_df(ticker)
         ich=ta.trend.IchimokuIndicator(df["High"],df["Low"],9,26,52,False,True)
         df["span_a"]=ich.ichimoku_a()
         df["span_b"]=ich.ichimoku_b()
@@ -1003,26 +1009,28 @@ class forex_backtest_class():
         summary= self.close_position(ticker ,bar+1)
         return summary
     #************************************************************ Average True Range Indicator ************************
-    def atr(self , ticker ,n=14 ):
+    def atr(self, ticker=None , period=14 , plot=False):
         '''
         Calculate ATR Indicator 
         n=14 , most of the time
         این اندیکاتور نوسانات بازار را نشان می دهد و هر چه بیشتر باشد بازار نوسان بیشتری دارد و هر چه بارا نوسان کمتری داشته باشد این اندیکارتور نیز کمتر است.
         '''
-        df=self.data[[ticker+"_low",ticker+"_high",ticker+"_close"]].copy()
-        df.rename(columns={ticker+"_low":"Low",ticker+"_high":"High",ticker+"_close":"Close"},inplace=True)
-
+        if ticker :
+            df=self.rename_columns_df(ticker)
+        else :
+            df=self.temp_data
         df["H-L"]= abs(df["High"] - df["Low"])
         df["H-PC"] = abs(df["High"] - df["Close"].shift(1))  # High - Previous Close
         df["L-PC"]= abs(df["Low"] - df["Close"].shift(1))    # Low - Previous Close
         df["TR"]= df[["H-L" , "H-PC" , "L-PC"]].max(axis=1 , skipna=False)
-        df["ATR"]= df["TR"].rolling(n).mean()
+        df["ATR"]= df["TR"].rolling(period).mean()
         df.drop(["H-L","H-PC","L-PC"] , axis=1 , inplace=True)
-        #df[["Close","ATR"]].plot(figsize=(12,8) ,secondary_y="ATR")
+        if plot:
+            df[["Close","ATR"]].plot(figsize=(12,8) ,secondary_y="ATR")
         return df
     
     #********************************************** Average Directional Movement Index (ADX) indicator ******************** 
-    def adx(self , ticker , period=14 ):
+    def adx(self , ticker=None ,period=14 , plot=False , bar=-1 ):
         '''
         Calculates the Average Directional Movement Index (ADX) indicator
         period (int, optional): The lookback period for the calculations. Defaults to 14.
@@ -1033,8 +1041,10 @@ class forex_backtest_class():
             - 'minus_di': Negative Directional Indicator (DI-) values.
             - 'adx': Average Directional Movement Index (ADX) values.
         '''
-        df = self.atr(ticker, period)
-    
+        if ticker :
+            df = self.atr(ticker=ticker,period=period)
+        else :
+            df = self.atr(period=period)
         df['DMplus']=np.where((df['High']-df['High'].shift(1))>(df['Low'].shift(1)-df['Low']),df['High']-df['High'].shift(1),0)
         df['DMplus']=np.where(df['DMplus']<0,0,df['DMplus'])    
         df['DMminus']=np.where((df['Low'].shift(1)-df['Low'])>(df['High']-df['High'].shift(1)),df['Low'].shift(1)-df['Low'],0)
@@ -1082,23 +1092,22 @@ class forex_backtest_class():
                 ADX.append(((period-1)*ADX[j-1] + DX[j])/period)
     
         df['ADX']=np.array(ADX)
-
-        plt.figure(figsize=(16,8))
-        p1 = plt.subplot2grid((11,1), (0,0), rowspan = 5, colspan = 1)
-        p2 = plt.subplot2grid((11,1), (6,0), rowspan = 5, colspan = 1)
-        p1.plot(df['Close'], linewidth = 2, color = '#ff9800')
-        p1.set_title('CLOSING PRICE')
-        p2.plot(df['DIplusN'], color = '#26a69a', label = '+ DI', linewidth = 3, alpha = 0.3)
-        p2.plot(df['DIminusN'], color = '#f44336', label = '- DI', linewidth = 3, alpha = 0.3)
-        p2.plot(df['ADX'], color = '#2196f3', label = 'ADX', linewidth = 3)
-        p2.axhline(25, color = 'grey', linewidth = 2, linestyle = '--')
-        p2.legend()
-        p2.set_title('ADX Indicator')
-        plt.show()
+        if plot :
+            plt.figure(figsize=(16,8))
+            p1 = plt.subplot2grid((11,1), (0,0), rowspan = 5, colspan = 1)
+            p2 = plt.subplot2grid((11,1), (6,0), rowspan = 5, colspan = 1)
+            p1.plot(df['Close'], linewidth = 2, color = '#ff9800')
+            p1.set_title('CLOSING PRICE')
+            p2.plot(df['DIplusN'], color = '#26a69a', label = '+ DI', linewidth = 3, alpha = 0.3)
+            p2.plot(df['DIminusN'], color = '#f44336', label = '- DI', linewidth = 3, alpha = 0.3)
+            p2.plot(df['ADX'], color = '#2196f3', label = 'ADX', linewidth = 3)
+            p2.axhline(25, color = 'grey', linewidth = 2, linestyle = '--')
+            p2.legend()
+            p2.set_title('ADX Indicator')
+            plt.show()
 
         df.drop(["TR","DMplus","DMminus","TRn" ,"DMplusN","DMminusN","DIdiff","DIsum","DX"] , axis=1 , inplace=True)
-        df.dropna(inplace=True)
-        return df
+        return round(df.iloc[bar]["ADX"],2)
     #********************************************************** On Balance Volume Indicator **************************
     def obv(self ,ticker):
         '''
@@ -1127,3 +1136,4 @@ class forex_backtest_class():
         plt.show()
         '''
         return df
+
