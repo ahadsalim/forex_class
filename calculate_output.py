@@ -2,9 +2,9 @@ import myforexclass as mf
 import datetime
 
 start_year = 2024
-start_month = 3
+start_month = 1
 end_year = 2024
-end_month = 6
+end_month = 2
 interval = "1h"
 tickers=["ETH-USD"]
 result_data = mf.pd.DataFrame(columns=["date","ticker","return_hold",
@@ -32,7 +32,7 @@ for ticker in tickers :
             end_month_date = start_month_date.replace(month=month+1) - datetime.timedelta(days=1)
             month += 1
 
-        t = mf.forex_backtest_class([ticker],start_month_date , end_month_date , interval )
+        t = mf.forex_backtest_class([ticker],start_month_date , end_month_date , interval ,0,1000)
         #******************************** SMA
         (s_sma,l_sma)= t.best_param_sma(ticker)
         out_sma=t.sma_backtest(ticker,s_sma,l_sma)
