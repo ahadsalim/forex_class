@@ -3,7 +3,9 @@ import json
 import time
 import hmac
 import requests
+from tqdm import tqdm
 import pandas as pd
+import numpy as np
 from urllib.parse import urlparse
 
 class Coinex_API(object):
@@ -50,6 +52,11 @@ class Coinex_API(object):
         return headers
 
     def request(self, method, url, params={}, data=""):
+        '''
+            Create request URL to get & set data
+
+            Return : Answer from CoinEx server
+        '''
         req = urlparse(url)
         request_path = req.path
 
@@ -87,6 +94,14 @@ class Coinex_API(object):
         return response
     
     def get_spot_market(self,ticker=""):
+        '''
+            Coin specifications in the spot market
+            Arguman :
+                null : Get all Coins exchange 
+                    Return in Dataframe format
+                ticker : To get detail of coin exchange like : BTCUSDT  
+                    Retun in json format
+        '''
         request_path = "/spot/market"
         params = {"market": ticker}
         response = self.request(
@@ -103,8 +118,77 @@ class Coinex_API(object):
                 return res["data"]
         else :
             raise ValueError(res["message"])
+        
+    def get_spot_price_ticker(self,ticker):
+        '''
+            Get Price of ticker in spot market
+        '''
+        request_path = "/spot/ticker"
+        params = {"market": ticker}
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            params=params,
+        )
+        res=response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+        
+    def get_spot_kline(self,ticker,period,limit):
+        '''
+        ticker : ticker name
+        limit : Number of transaction data items. Default as 100, max. value 1000
+        period :One of ["1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour", "6hour", "12hour", "1day", "3day", "1week"]
+
+        return : DataFrame
+        '''
+        request_path = "/spot/kline"
+        params = {"market": ticker , "period" : period , "limit": limit }
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            params=params,
+        )
+        res=response.json()
+        df2= pd.DataFrame()
+        if res["code"]==0 :
+            df = pd.json_normalize(res["data"])
+            print(df)
+            #df2['Time'] = np.where(df['created_at']>0 ,pd.to_datetime(df['created_at'], unit='ms'),df['created_at'].fillna(method='ffill'))
+            df2['Time'] = pd.to_datetime(df['created_at'], unit='ms')
+            df2['Open'] = df["open"].astype(float)
+            df2['High'] = df["high"].astype(float)
+            df2['Low'] = df["low"].astype(float)
+            df2['Close'] = df["close"].astype(float)
+            df2['PrcntChange'] = np.log(df["close"].astype(float) / df["close"].astype(float).shift(1))
+            df2['Volume'] = df["volume"].astype(float)
+            df2['Value'] = df["value"].astype(float)
+            return df2
+        else :
+            raise ValueError(res["message"])
+
+    def get_spot_pctchange(self,period,limit) :
+        markets = self.get_spot_market()
+        markets = [symbol for symbol in markets["market"].to_list() if symbol.endswith('USDT')]
+        df = pd.DataFrame()
+        for symbol in tqdm(markets) :
+            data=self.get_spot_kline(symbol,period,limit).copy()
+            df['symbol'] = symbol
+            df['time'] = data['Time']
+            df['price'] = data['Close']
+            df['pct_change'] = data["PrcntChange"]
+            df['volume'] = data['Volume']
+            print (df)
+        return df
+            
+        
 
     def get_spot_balance(self):
+        '''
+            Get balance of your account in jason format
+        '''
         request_path = "/assets/spot/balance"
         response = self.request(
             "GET",
@@ -118,7 +202,7 @@ class Coinex_API(object):
         
     def get_deposit_address(self,currency,chain):
         '''
-        Get Address for deposit
+        Get your Wallet Address for deposit
         currency as string
         chain as string ("TRC20" , "CSC" , "BEP20" , ...)
         '''
