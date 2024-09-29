@@ -155,17 +155,28 @@ class Coinex_API(object):
         df2= pd.DataFrame()
         if res["code"]==0 :
             df = pd.json_normalize(res["data"])
-            print(df)
-            #df2['Time'] = np.where(df['created_at']>0 ,pd.to_datetime(df['created_at'], unit='ms'),df['created_at'].fillna(method='ffill'))
-            df2['Time'] = pd.to_datetime(df['created_at'], unit='ms')
-            df2['Open'] = df["open"].astype(float)
-            df2['High'] = df["high"].astype(float)
-            df2['Low'] = df["low"].astype(float)
-            df2['Close'] = df["close"].astype(float)
-            df2['PrcntChange'] = np.log(df["close"].astype(float) / df["close"].astype(float).shift(1))
-            df2['Volume'] = df["volume"].astype(float)
-            df2['Value'] = df["value"].astype(float)
-            return df2
+            if df.shape[0] != 0 :  # If there is any data for this ticker
+                df2["Ticker"] = ticker
+                df2['Time'] = pd.to_datetime(df['created_at'], unit='ms')
+                df2['Open'] = df["open"].astype(float)
+                df2['High'] = df["high"].astype(float)
+                df2['Low'] = df["low"].astype(float)
+                df2['Close'] = df["close"].astype(float)
+                df2['PrcntChange'] = np.log(df["close"].astype(float) / df["close"].astype(float).shift(1))
+                df2['Volume'] = df["volume"].astype(float)
+                df2['Value'] = df["value"].astype(float)
+                return df2
+            else :
+                df2["Ticker"] = ticker
+                df2['Time'] = 0
+                df2['Open'] = 0
+                df2['High'] = 0
+                df2['Low'] = 0
+                df2['Close'] = 0
+                df2['PrcntChange'] = 0
+                df2['Volume'] = 0
+                df2['Value'] = 0
+                return df2
         else :
             raise ValueError(res["message"])
 
@@ -174,13 +185,11 @@ class Coinex_API(object):
         markets = [symbol for symbol in markets["market"].to_list() if symbol.endswith('USDT')]
         df = pd.DataFrame()
         for symbol in tqdm(markets) :
-            data=self.get_spot_kline(symbol,period,limit).copy()
-            df['symbol'] = symbol
-            df['time'] = data['Time']
-            df['price'] = data['Close']
-            df['pct_change'] = data["PrcntChange"]
-            df['volume'] = data['Volume']
+            data=self.get_spot_kline(symbol,period,limit)
+            print (data)
+            df = pd.concat([df, data], ignore_index=True)
             print (df)
+
         return df
             
         
