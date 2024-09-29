@@ -6,6 +6,7 @@ import requests
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
+import tradingview_ta as tvta
 from urllib.parse import urlparse
 
 class Coinex_API(object):
@@ -156,40 +157,38 @@ class Coinex_API(object):
         if res["code"]==0 :
             df = pd.json_normalize(res["data"])
             if df.shape[0] != 0 :  # If there is any data for this ticker
-                df2["Ticker"] = ticker
                 df2['Time'] = pd.to_datetime(df['created_at'], unit='ms')
                 df2['Open'] = df["open"].astype(float)
                 df2['High'] = df["high"].astype(float)
                 df2['Low'] = df["low"].astype(float)
                 df2['Close'] = df["close"].astype(float)
-                df2['PrcntChange'] = np.log(df["close"].astype(float) / df["close"].astype(float).shift(1))
+                df2['Return'] = np.log(df["close"].astype(float) / df["close"].astype(float).shift(1))
+                df2["Cum_Return"] = np.exp(df2["Return"].cumsum())
                 df2['Volume'] = df["volume"].astype(float)
                 df2['Value'] = df["value"].astype(float)
                 return df2
             else :
-                df2["Ticker"] = ticker
-                df2['Time'] = 0
-                df2['Open'] = 0
-                df2['High'] = 0
-                df2['Low'] = 0
-                df2['Close'] = 0
-                df2['PrcntChange'] = 0
-                df2['Volume'] = 0
-                df2['Value'] = 0
-                return df2
+                return False
         else :
             raise ValueError(res["message"])
 
-    def get_spot_pctchange(self,period,limit) :
+    def get_spot_cum_ret(self,period,limit) :
+        '''
+            Get Cumulative Return in the period in limit time for all symbol
+            tradingview : chack tradingview site 
+        '''
         markets = self.get_spot_market()
         markets = [symbol for symbol in markets["market"].to_list() if symbol.endswith('USDT')]
-        df = pd.DataFrame()
+        df = pd.DataFrame(columns=['Time','Open','High','Low','Close','Return','Cum_Return',
+                                   'Volume','Value','symbol','period','limit'])
         for symbol in tqdm(markets) :
             data=self.get_spot_kline(symbol,period,limit)
-            print (data)
-            df = pd.concat([df, data], ignore_index=True)
-            print (df)
-
+            if len(data)>0 :
+                last_row = data.iloc[-1].to_dict()
+                last_row['symbol'] = symbol
+                last_row['period'] = period
+                last_row['limit']  = limit
+                df.loc[len(df)] = last_row
         return df
             
         
