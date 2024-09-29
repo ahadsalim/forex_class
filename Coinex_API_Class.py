@@ -178,17 +178,25 @@ class Coinex_API(object):
             tradingview : chack tradingview site 
         '''
         markets = self.get_spot_market()
-        markets = [symbol for symbol in markets["market"].to_list() if symbol.endswith('USDT')]
+        filtered_markets = markets[markets['market'].str.endswith('USDT')]
         df = pd.DataFrame(columns=['Time','Open','High','Low','Close','Return','Cum_Return',
-                                   'Volume','Value','symbol','period','limit'])
-        for symbol in tqdm(markets) :
+                                   'Volume','Value','symbol','period','limit','maker_fr','taker_fr'])
+        for index in tqdm (range (filtered_markets.shape[0]) , position=0) :
+            symbol= filtered_markets.iloc[index, 5]
+            maker_fee_rate=filtered_markets.iloc[index, 4]
+            taker_fee_rate=filtered_markets.iloc[index, 9]
             data=self.get_spot_kline(symbol,period,limit)
-            if len(data)>0 :
-                last_row = data.iloc[-1].to_dict()
-                last_row['symbol'] = symbol
-                last_row['period'] = period
-                last_row['limit']  = limit
-                df.loc[len(df)] = last_row
+            try :
+                if len(data)>0 :
+                    last_row = data.iloc[-1].to_dict()
+                    last_row['symbol'] = symbol
+                    last_row['period'] = period
+                    last_row['limit']  = limit
+                    last_row['maker_fr'] = maker_fee_rate
+                    last_row['taker_fr'] = taker_fee_rate
+                    df.loc[len(df)] = last_row
+            except :
+                continue
         return df
             
         

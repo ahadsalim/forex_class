@@ -2,7 +2,7 @@ from tradingview_ta import TA_Handler, Interval, Exchange , TradingView
 import Coinex_API_Class as CoinexAPI
 import pandas as pd
 from tqdm import tqdm
-
+   
 api_key = "47D7C4B286224298BB3D88A9D7161A45"
 api_secret = "F0F2D4156F6892ED2F03576FEE74CFA658C5F8271DCE102D"
 coinex = CoinexAPI.Coinex_API(api_key,api_secret)
@@ -47,11 +47,14 @@ def prepare_data (period,limit) :
             data_spot.loc[index, 'Buy'] = data['BUY']
             data_spot.loc[index, 'Sell'] = data['SELL']
             data_spot.loc[index, 'Neutral'] = data['NEUTRAL']
-            print(index)
         except Exception as e:
             continue
         df=data_spot.drop(columns=["Open","High","Low","Return"] , axis=1)
     return df
 
-df= prepare_data("5min",10)
+df= prepare_data("15min",48)  # For 12 Hours ago
 df.to_csv('data.csv', index=False)
+
+df2 = df[(df['Recomandation'] == "STRONG_BUY") | (df['Recomandation'] == "STRONG_SELL")]
+df2 = df2.sort_values(['Cum_Return'],ascending=False)
+df2 = df2.reindex(['Time', 'period', 'limit','Recomandation','symbol','Cum_Return','Close','Volume','Value','Buy','Sell','Neutral'], axis=1)
