@@ -6,7 +6,7 @@ import requests
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-import tradingview_ta as tvta
+from tradingview_ta import TA_Handler, Interval, Exchange , TradingView
 from urllib.parse import urlparse
 
 class Coinex_API(object):
@@ -29,13 +29,18 @@ class Coinex_API(object):
         return "This class use to work with CoinEx Exchange site"
     
     def __init__(self , access_id , secret_key):
+        '''
+            Set initial values.
+        '''
         self.access_id = access_id
         self.secret_key = secret_key
         self.url = "https://api.coinex.com/v2"
         self.headers = self.HEADERS.copy()
 
-    # Generate your signature string
     def gen_sign(self, method, request_path, body, timestamp):
+        '''
+            Generate your signature string
+        '''
         prepared_str = f"{method}{request_path}{body}{timestamp}"
         signature = hmac.new(
             bytes(self.secret_key, 'latin-1'), 
@@ -55,7 +60,6 @@ class Coinex_API(object):
     def request(self, method, url, params={}, data=""):
         '''
             Create request URL to get & set data
-
             Return : Answer from CoinEx server
         '''
         req = urlparse(url)
@@ -96,12 +100,10 @@ class Coinex_API(object):
     
     def get_spot_market(self,ticker=""):
         '''
-            Coin specifications in the spot market
+            Get information about ticker in spot market in CoinEx site
             Arguman :
-                null : Get all Coins exchange 
-                    Return in Dataframe format
-                ticker : To get detail of coin exchange like : BTCUSDT  
-                    Retun in json format
+                null : Get all tickers in exchange Return in Dataframe format
+                ticker : To get detail of ticker in exchange like : BTCUSDT  Retun in json format
         '''
         request_path = "/spot/market"
         params = {"market": ticker}
@@ -122,7 +124,7 @@ class Coinex_API(object):
 
     def get_spot_price_ticker(self,ticker):
         '''
-            Get Price of ticker in spot market
+            Get price info of the ticker among 24 hours ago in spot market
         '''
         request_path = "/spot/ticker"
         params = {"market": ticker}
@@ -160,8 +162,8 @@ class Coinex_API(object):
                 data.loc[index,"volume_buy"]= 0
         try :
             data.to_csv("tickers.csv" , index=False)
-        except :
-            print("Can't save data !!!")
+        except Exception as e:
+            print("Can't save data !!!" , e)
         
         return data
 
@@ -212,25 +214,57 @@ class Coinex_API(object):
         for index,symbol in tqdm(markets.iterrows()) :
             ticker= symbol['market']
             try :
-                data=self.get_spot_kline(ticker,period,limit)
-
-                df.iloc[index,"Time"]= data['Time']
-                df.loc[index,"symbol"] = ticker
-                df.loc[index,"min_amount"] = symbol["min_amount"]
-                df.loc[index,"maker_fee_rate"] =symbol["maker_fee_rate"]
-                df.loc[index,"taker_fee_rate"] =symbol["taker_fee_rate"]
-                df.iloc[index,"Close"]= data['Close']
-                df.iloc[index,"Return"]= data['Return']
-                df.iloc[index,"Cum_Return"]= data['Cum_Return']
-                df.iloc[index,"Volume"]= data['Volume']
-                df.iloc[index,"Value"]= data['Value']
-                df.iloc[index,"Cum_Value"]= data['Cum_Value']
-                df.iloc[index,"period"]= data['period']
-                df.iloc[index,"limit"]= data['limit']
-            except :
+                data=self.get_spot_kline(ticker,period,limit).iloc[-1]
+                info ={"Time" : [data["Time"]] , "symbol": [ticker] , "min_amount": [symbol["min_amount"]] , 
+                       "maker_fee_rate": [symbol["maker_fee_rate"]] ,"taker_fee_rate": [symbol["taker_fee_rate"]],
+                       "Close": [data['Close']], "Return": [data['Return']], "Cum_Return":[data["Cum_Return"]] ,
+                       "Volume": [data['Volume']] ,"Value": [data["Value"]] ,"Cum_Value": [data['Cum_Value']] , "period":[period] , "limit":[limit] }
+                info = pd.DataFrame(info)
+                if df.empty :
+                    df =info.copy()
+                else :
+                    df = pd.concat([df, info],ignore_index=True)
+            except Exception as e :
+                print(e)
                 continue
         return df
-
+    
+    def get_ta_filtered_tickers (self,period,limit) :
+        data_spot = self.get_cum_ret_filtered_tickers(period,limit)
+        data_spot['Recomandation'] = None
+        data_spot['Buy'] = None
+        data_spot['Sell'] = None
+        data_spot['Neutral'] = None
+        for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc="Processing symbol" , position=0):
+            symbol=row['symbol']
+            try : 
+                if period== "1min" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_1_MINUTE)).get_analysis().summary
+                elif period == "5min" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_5_MINUTES)).get_analysis().summary
+                elif period == "15min" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_15_MINUTES)).get_analysis().summary
+                elif period == "30min" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_30_MINUTES)).get_analysis().summary
+                elif period == "1hour" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_1_HOUR)).get_analysis().summary
+                elif period == "2hour" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_2_HOURS)).get_analysis().summary
+                elif period == "4hour" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_4_HOURS)).get_analysis().summary
+                elif period == "1day" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_1_DAY)).get_analysis().summary
+                elif period == "1week" : 
+                    data= (TA_Handler(symbol=symbol, screener="crypto", exchange="COINEX", interval=Interval.INTERVAL_1_WEEK)).get_analysis().summary
+                data_spot.loc[index, 'Recomandation'] =data['RECOMMENDATION']
+                data_spot.loc[index, 'Buy'] = data['BUY']
+                data_spot.loc[index, 'Sell'] = data['SELL']
+                data_spot.loc[index, 'Neutral'] = data['NEUTRAL']
+            except Exception as e:
+                print("Error:",e)
+                continue
+        return data_spot
+    
     def get_spot_balance(self):
         '''
             Get balance of your account in jason format
