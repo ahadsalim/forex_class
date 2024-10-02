@@ -26,7 +26,7 @@ class Coinex_API(object):
             api_key (str): Your CoinEx API key.
             api_secret (str): Your CoinEx API secret.
         """
-        return "This class use to connect CoinEx Exchange"
+        return "This class use to work with CoinEx Exchange site"
     
     def __init__(self , access_id , secret_key):
         self.access_id = access_id
@@ -119,7 +119,7 @@ class Coinex_API(object):
                 return res["data"]
         else :
             raise ValueError(res["message"])
-        
+
     def get_spot_price_ticker(self,ticker):
         '''
             Get Price of ticker in spot market
@@ -136,14 +136,42 @@ class Coinex_API(object):
             return res["data"]
         else :
             raise ValueError(res["message"])
+
+    def save_filtered_spot_market (self):
+        '''
+            This function updates the symbols information on the CoinEx site every 24 hours and saves it in the tickers.csv file.
+        '''
+        df = self.get_spot_market()
+        data = df[df['market'].str.endswith('USDT')].copy()
+        data.drop(columns=["base_ccy","base_ccy_precision","quote_ccy","quote_ccy_precision"] , inplace=True)
+        data = data.reindex(columns=['market','min_amount','maker_fee_rate','taker_fee_rate','is_amm_available','is_margin_available'])
+        for index,symbol in tqdm(data.iterrows()) :
+            try :
+                info = self.get_spot_price_ticker(symbol['market'])[0]
+                data.loc[index,"price"]= info['last']
+                data.loc[index,"value"]= info['value']
+                data.loc[index,"volume_sell"]= info['volume_sell']
+                data.loc[index,"volume_buy"]= info['volume_buy']
+            except Exception as e:
+                print (e)
+                data.loc[index,"price"]= 0
+                data.loc[index,"value"]= 0
+                data.loc[index,"volume_sell"]= 0
+                data.loc[index,"volume_buy"]= 0
+        try :
+            data.to_csv("tickers.csv" , index=False)
+        except :
+            print("Can't save data !!!")
         
+        return data
+
     def get_spot_kline(self,ticker,period,limit):
         '''
-        ticker : ticker name
-        limit : Number of transaction data items. Default as 100, max. value 1000
-        period :One of ["1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour", "6hour", "12hour", "1day", "3day", "1week"]
+            ticker : ticker name
+            limit : Number of transaction data items. Default as 100, max. value 1000
+            period :One of ["1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour", "6hour", "12hour", "1day", "3day", "1week"]
 
-        return : DataFrame
+            return : DataFrame
         '''
         request_path = "/spot/kline"
         params = {"market": ticker , "period" : period , "limit": limit }
@@ -166,40 +194,42 @@ class Coinex_API(object):
                 df2["Cum_Return"] = np.exp(df2["Return"].cumsum())
                 df2['Volume'] = df["volume"].astype(float)
                 df2['Value'] = df["value"].astype(float)
+                df2['Cum_Value']= df2['Value'].cumsum()
                 return df2
             else :
                 return False
         else :
             raise ValueError(res["message"])
 
-    def get_spot_cum_ret(self,period,limit) :
+    def get_cum_ret_filtered_tickers(self,period,limit) :
         '''
-            Get Cumulative Return in the period in limit time for all symbol
-            tradingview : chack tradingview site 
+            Get Cumulative Return in the period in limit time for all tickers in tickers.csv
+            tradingview : check tradingview site 
         '''
-        markets = self.get_spot_market()
-        filtered_markets = markets[markets['market'].str.endswith('USDT')]
-        df = pd.DataFrame(columns=['Time','Open','High','Low','Close','Return','Cum_Return',
-                                   'Volume','Value','symbol','period','limit','maker_fr','taker_fr'])
-        for index in tqdm (range (filtered_markets.shape[0]) , position=0) :
-            symbol= filtered_markets.iloc[index, 5]
-            maker_fee_rate=filtered_markets.iloc[index, 4]
-            taker_fee_rate=filtered_markets.iloc[index, 9]
-            data=self.get_spot_kline(symbol,period,limit)
+        markets = pd.read_csv("tickers.csv")
+        df=pd.DataFrame(columns=['Time',"symbol","min_amount","maker_fee_rate","taker_fee_rate",
+                                 'Close','Return','Cum_Return','Volume','Value','Cum_Value','period','limit'])
+        for index,symbol in tqdm(markets.iterrows()) :
+            ticker= symbol['market']
             try :
-                if len(data)>0 :
-                    last_row = data.iloc[-1].to_dict()
-                    last_row['symbol'] = symbol
-                    last_row['period'] = period
-                    last_row['limit']  = limit
-                    last_row['maker_fr'] = maker_fee_rate
-                    last_row['taker_fr'] = taker_fee_rate
-                    df.loc[len(df)] = last_row
+                data=self.get_spot_kline(ticker,period,limit)
+
+                df.iloc[index,"Time"]= data['Time']
+                df.loc[index,"symbol"] = ticker
+                df.loc[index,"min_amount"] = symbol["min_amount"]
+                df.loc[index,"maker_fee_rate"] =symbol["maker_fee_rate"]
+                df.loc[index,"taker_fee_rate"] =symbol["taker_fee_rate"]
+                df.iloc[index,"Close"]= data['Close']
+                df.iloc[index,"Return"]= data['Return']
+                df.iloc[index,"Cum_Return"]= data['Cum_Return']
+                df.iloc[index,"Volume"]= data['Volume']
+                df.iloc[index,"Value"]= data['Value']
+                df.iloc[index,"Cum_Value"]= data['Cum_Value']
+                df.iloc[index,"period"]= data['period']
+                df.iloc[index,"limit"]= data['limit']
             except :
                 continue
         return df
-            
-        
 
     def get_spot_balance(self):
         '''
