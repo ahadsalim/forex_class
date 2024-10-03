@@ -139,15 +139,15 @@ class Coinex_API(object):
         else :
             raise ValueError(res["message"])
 
-    def save_filtered_spot_market (self):
+    def save_filtered_spot_market (self,min_price):
         '''
-            This function updates the symbols information on the CoinEx site every 24 hours and saves it in the tickers.csv file.
+            This function updates the symbols information that price is upper than min_price every 24 hours and saves it in the tickers.csv file.
         '''
         df = self.get_spot_market()
         data = df[df['market'].str.endswith('USDT')].copy()
         data.drop(columns=["base_ccy","base_ccy_precision","quote_ccy","quote_ccy_precision"] , inplace=True)
         data = data.reindex(columns=['market','min_amount','maker_fee_rate','taker_fee_rate','is_amm_available','is_margin_available'])
-        for index,symbol in tqdm(data.iterrows()) :
+        for index,symbol in tqdm(data.iterrows() ,total=len(data)) :
             try :
                 info = self.get_spot_price_ticker(symbol['market'])[0]
                 data.loc[index,"price"]= info['last']
@@ -160,12 +160,14 @@ class Coinex_API(object):
                 data.loc[index,"value"]= 0
                 data.loc[index,"volume_sell"]= 0
                 data.loc[index,"volume_buy"]= 0
+
+        df= data[(data['price'].astype(float)> min_price)]
         try :
-            data.to_csv("tickers.csv" , index=False)
+            df.to_csv("tickers.csv" , index=False)
+            return True
         except Exception as e:
             print("Can't save data !!!" , e)
-        
-        return data
+            return e
 
     def get_spot_kline(self,ticker,period,limit):
         '''
@@ -211,7 +213,7 @@ class Coinex_API(object):
         markets = pd.read_csv("tickers.csv")
         df=pd.DataFrame(columns=['Time',"symbol","min_amount","maker_fee_rate","taker_fee_rate",
                                  'Close','Return','Cum_Return','Volume','Value','Cum_Value','period','limit'])
-        for index,symbol in tqdm(markets.iterrows()) :
+        for index,symbol in tqdm(markets.iterrows() , total=len(markets)) :
             ticker= symbol['market']
             try :
                 data=self.get_spot_kline(ticker,period,limit).iloc[-1]
@@ -282,9 +284,9 @@ class Coinex_API(object):
         
     def get_deposit_address(self,currency,chain):
         '''
-        Get your Wallet Address for deposit
-        currency as string
-        chain as string ("TRC20" , "CSC" , "BEP20" , ...)
+            Get your Wallet Address for deposit
+            currency as string
+            chain as string ("TRC20" , "CSC" , "BEP20" , ...)
         '''
         request_path = "/assets/deposit-address"
         params = {"ccy": currency, "chain": chain}
@@ -300,17 +302,30 @@ class Coinex_API(object):
         else :
             raise ValueError(res["message"])
         
-    def put_limit(self):
+    def put_spot_order(self,ticker,side,order_type,amount,price,is_hide=False) :
+        '''
+        ticker : name of ticker
+        side : buy / sell
+        order_type : 
+            limit: Limit order (Always Valid, Good Till Cancel)
+            market: Market order
+            maker_only: Maker only order (Post only order)
+            ioc: Immediate or Cancel
+            fok: Fill or Kill
+        amount : Order amount
+        price :  Order price
+        is_hide :  if True it will be hidden in the public depth information
+        '''
         request_path = "/spot/order"
         data = {
-            "market": "BTCUSDT",
+            "market": ticker,
             "market_type": "SPOT",
-            "side": "buy",
-            "type": "limit",
-            "amount": "10000",
-            "price": "1",
-            "client_id": "user1",
-            "is_hide": True,
+            "side": side,
+            "type": type_order,
+            "amount": amount,
+            "price": price,
+            "client_id": "Ahad1360",
+            "is_hide": is_hide,
         }
         data = json.dumps(data)
         response = self.request(
@@ -318,4 +333,103 @@ class Coinex_API(object):
             "{url}{request_path}".format(url=self.url, request_path=request_path),
             data=data,
         )
-        return response.json()
+        res= response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+
+    def modify_order (self,ticker,order_id,amount=None,price=None) :
+        '''
+            ticker : name of ticker
+            order_id : Order ID
+            amount : Order amount, which should include at least one of the two parameters, amount/price
+            price :  Order price, which should include at least one of the two parameters, amount/price
+        '''
+        request_path = "/spot/modify-order"
+        data = {
+            "market": ticker,
+            "market_type": "SPOT",
+            "order_id": order_id,
+            "amount": amount,
+            "price": price,
+        }
+        data = json.dumps(data)
+        response = self.request(
+            "POST",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            data=data,
+        )
+        res= response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+
+    def order_Status_Query(self,ticker,order_id):
+        '''
+            Get Status Order
+        '''
+        request_path = "/spot/order-status"
+        data = {
+            "market": ticker,
+            "order_id": order_id,
+        }
+        data = json.dumps(data)
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            data=data,
+        )
+        res= response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+
+    def get_unfilled_order (self,ticker,side,page=1,limit=10) :
+        '''
+            ticker : name of ticker
+            side : buy / sell
+            page : Number of pagination. Default is 1.
+            limit : Number in each page. Default is 10.
+        '''
+        request_path = "/spot/pending-order"
+        data = {
+            "market": ticker,
+            "market_type": "SPOT",
+            "side": side,
+            "client_id": "Ahad1360",
+            "page": page ,
+            "page" : limit ,
+        }
+        data = json.dumps(data)
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            data=data,
+        )
+        res= response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+
+    def cancel_order(self,ticker,order_id):
+        request_path = "/spot/cancel-order"
+        data = {
+            "market": ticker,
+            "order_id": order_id,
+        }
+        data = json.dumps(data)
+        response = self.request(
+            "POST",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            data=data,
+        )
+        res= response.json()
+        if res["code"]==0 :
+            return res["data"]
+        else :
+            raise ValueError(res["message"])
+        
