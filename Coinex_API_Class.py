@@ -255,7 +255,7 @@ class Coinex_API(object):
         markets = pd.read_csv("tickers.csv")
         df = pd.DataFrame(columns=['Time', "symbol", "min_amount", "maker_fee_rate", "taker_fee_rate",
                                    'Close', 'Return', 'Cum_Return', 'Volume', 'Value', 'Cum_Value', 'period', 'limit'])
-        for index, symbol in tqdm(markets.iterrows(), total=len(markets)):
+        for index, symbol in tqdm(markets.iterrows(), total=len(markets) ,desc="Get info From CoinEx") :
             ticker = symbol['market']
             try:
                 data = self.get_spot_kline(ticker, period, limit).iloc[-1]
@@ -307,7 +307,7 @@ class Coinex_API(object):
         data_spot['Buy'] = None
         data_spot['Sell'] = None
         data_spot['Neutral'] = None
-        for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc="Processing symbol" , position=0):
+        for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc="Get info From TradingView" , position=0):
             symbol=row['symbol']
             try : 
                 if period== "1min" : 
@@ -372,7 +372,7 @@ class Coinex_API(object):
         else :
             raise ValueError(res["message"])
         
-    def put_spot_order(self, ticker, side, order_type, amount, price, is_hide=False):
+    def put_spot_order(self, ticker, side, order_type, amount, price=None, is_hide=False):
         """
         Place a Spot order
 
@@ -396,7 +396,7 @@ class Coinex_API(object):
         dict
             Result of the API call
         """
-        if ticker is None or side is None or order_type is None or amount is None or price is None:
+        if ticker is None or side is None or order_type is None or (amount is None and price is None):
             raise ValueError("All parameters must have value")
 
         request_path = "/spot/order"
@@ -411,6 +411,7 @@ class Coinex_API(object):
             "is_hide": is_hide,
         }
         data = json.dumps(data)
+        print(data)
         response = self.request(
             "POST",
             "{url}{request_path}".format(url=self.url, request_path=request_path),
@@ -418,9 +419,9 @@ class Coinex_API(object):
         )
         res = response.json()
         if res["code"] == 0:
-            return res["data"]
+            return "done " ,res["data"]
         else:
-            raise ValueError(res["message"])
+            return "fail" , res["message"]
     def modify_order (self,ticker,order_id,amount=None,price=None) :
         '''
             ticker : name of ticker
