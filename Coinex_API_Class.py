@@ -411,7 +411,6 @@ class Coinex_API(object):
             "is_hide": is_hide,
         }
         data = json.dumps(data)
-        print(data)
         response = self.request(
             "POST",
             "{url}{request_path}".format(url=self.url, request_path=request_path),

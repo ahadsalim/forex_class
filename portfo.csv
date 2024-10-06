@@ -1,0 +1,2 @@
+order_id,market,market_type,ccy,side,type,amount,price,unfilled_amount,filled_amount,filled_value,client_id,base_fee,quote_fee,discount_fee,maker_fee_rate,taker_fee_rate,last_fill_amount,last_fill_price,created_at,updated_at
+13400,CETUSDT,MARGIN,CET,buy,limit,10000,1,50241.7185224371,27564.87468358,27564.87468358,client_id_1,11.6582326221,0,0,0,0.0003,27564.87468358,1,1691482451000,1691482451000
