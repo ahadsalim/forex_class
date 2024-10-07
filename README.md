@@ -1,1 +1,1 @@
-This is my First class for algorithm trading in FOREX
+This is my First class for algorithm trading in FOREX and Crypto
