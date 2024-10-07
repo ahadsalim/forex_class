@@ -29,12 +29,19 @@ class Coinex_API(object):
         """
         return "This class use to work with CoinEx Exchange site"
     
-    def __init__(self , access_id , secret_key):
-        '''
-            Set initial values.
-        '''
+    def __init__(self , access_id , secret_key , connection = None):
+        """
+        Connects to the CoinEx API version 2
+
+        Args:
+            api_key (str): Your CoinEx API key.
+            api_secret (str): Your CoinEx API secret.
+            connection (object, optional): Optional database connection object
+        """
+
         self.access_id = access_id
         self.secret_key = secret_key
+        self.conn_db    = connection
         self.url = "https://api.coinex.com/v2"
         self.headers = self.HEADERS.copy()
 
@@ -98,7 +105,9 @@ class Coinex_API(object):
         if response.status_code != 200:
             raise ValueError(response.text)
         return response
-    
+
+# ******************* Spot Market ********************
+
     def get_spot_market(self, ticker: str = "") -> Union[pd.DataFrame, dict]:
         '''
             Get information about ticker in spot market in CoinEx site
@@ -158,7 +167,7 @@ class Coinex_API(object):
         # Reindex the columns to match the order of the columns in the DataFrame
         data = data.reindex(columns=['market','min_amount','maker_fee_rate','taker_fee_rate','is_amm_available','is_margin_available'])
         # Iterate over each symbol and update the price, value, volume_sell, volume_buy columns
-        for index,symbol in tqdm(data.iterrows() ,total=len(data)) :
+        for index,symbol in tqdm(data.iterrows() ,total=len(data) , desc="Get price info From CoinEx") :
             try :
                 info = self.get_spot_price_ticker(symbol['market'])[0]
                 data.loc[index,"price"]= info['last']
@@ -174,11 +183,11 @@ class Coinex_API(object):
         # Filter the symbols with price above min_price
         df= data[(data['price'].astype(float)> min_price)]
         try :
-            # Save the DataFrame to the tickers.csv file
-            df.to_csv("tickers.csv" , index=False)
+            # Save the DataFrame to the DB
+            df.to_sql('symbols', con=self.conn_db , if_exists='replace', index=False)
             return True
         except Exception as e:
-            print("Can't save data !!!" , e)
+            print("Can't store data !!!" , e)
             return e
 
     def get_spot_kline(self, ticker, period, limit):
@@ -233,7 +242,7 @@ class Coinex_API(object):
 
     def get_cum_ret_filtered_tickers(self, period: str, limit: int) -> pd.DataFrame:
         """
-        Get Cumulative Return in the period in limit time for all tickers in tickers.csv
+        Get Cumulative Return in the period in limit time for all tickers in symbols table of DB
 
         :param period: One of ["1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour", "6hour", "12hour", "1day", "3day", "1week"]
         :param limit: Number of transaction data items. Default as 100, max. value 1000
@@ -252,10 +261,13 @@ class Coinex_API(object):
             period (str): Period of the kline data
             limit (int): Limit of the kline data
         """
-        markets = pd.read_csv("tickers.csv")
+        query = "SELECT * FROM symbols"
+        markets = pd.read_sql_query(query, self.conn_db)
+
         df = pd.DataFrame(columns=['Time', "symbol", "min_amount", "maker_fee_rate", "taker_fee_rate",
                                    'Close', 'Return', 'Cum_Return', 'Volume', 'Value', 'Cum_Value', 'period', 'limit'])
-        for index, symbol in tqdm(markets.iterrows(), total=len(markets) ,desc="Get info From CoinEx") :
+        desc = "Get info From CoinEx < " + period + " > "
+        for index, symbol in tqdm(markets.iterrows(), total=len(markets) ,desc=desc) :
             ticker = symbol['market']
             try:
                 data = self.get_spot_kline(ticker, period, limit).iloc[-1]
@@ -307,7 +319,8 @@ class Coinex_API(object):
         data_spot['Buy'] = None
         data_spot['Sell'] = None
         data_spot['Neutral'] = None
-        for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc="Get info From TradingView" , position=0):
+        desc = "Get info From TradingView < " + period + " > "
+        for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc=desc , position=0):
             symbol=row['symbol']
             try : 
                 if period== "1min" : 
@@ -336,6 +349,88 @@ class Coinex_API(object):
                 print("Error:",e)
                 continue
         return data_spot
+# ****************** Portolio Management ******************
+    def symbol_Candidates(self,interval, higher_interval , HMP_candles):
+        """
+        Find symbols with a strong buy signal on both the given interval and the higher interval.
+        
+        Parameters
+        ----------
+        interval : str
+            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
+            '1week'.
+        higher_interval : str
+            The higher interval on which to select symbols. Must be higher than the given interval.
+        HMP_candles : int
+            How many previous candles? The number of candles for the given interval and the higher interval.
+        
+        Returns
+        -------
+        pd.DataFrame or str
+            A DataFrame with the selected symbols, sorted by cumulative return in descending order. If no symbols are found, returns
+            'empty'.
+        """
+
+        tickers_df = self.get_ta_filtered_tickers(interval, HMP_candles)
+        tickers_df2 = tickers_df[(tickers_df['Recomandation'] == "STRONG_BUY")]
+        higher_tickers_df = self.get_ta_filtered_tickers(higher_interval, HMP_candles)
+        higher_tickers_df2 = higher_tickers_df[(higher_tickers_df['Recomandation'] == "STRONG_BUY")]
+        shared_tickers_df = pd.merge(tickers_df2, higher_tickers_df2, on='symbol', how='inner')
+        top_symbols = shared_tickers_df.sort_values('Cum_Return_x', ascending=False)
+        if len(top_symbols) == 0 :
+            return "empty"
+        else :
+            top_symbols.drop(columns=['maker_fee_rate_x', 'maker_fee_rate_y', 'taker_fee_rate_y', 'Return_x', 'Return_y',
+                                    'Value_x', 'Value_y','Volume_y','period_x','limit_x','Cum_Return_y', 'Cum_Value_y', 
+                                    'Time_y','min_amount_y','Close_y','period_y', 'limit_y', 'Recomandation_y', 'Buy_y', 'Sell_y', 'Neutral_y'], inplace=True)
+            return top_symbols
+
+    def buy_portfo(self ,num_symbols ,stock , percent_of_each_symbol , interval, higher_interval , HMP_candles) :
+        """
+        Buy a portfolio of num_symbols symbols with stock amount of money. The amount of money allocated to each symbol is
+        determined by percent_of_each_symbol, and the symbols are chosen based on the buy signal of the two given intervals.
+        
+        Parameters
+        ----------
+        num_symbols : int
+            The number of symbols to buy.
+        stock : float
+            The amount of money to allocate to the portfolio.
+        percent_of_each_symbol : float
+            The percentage of the stock to allocate to each symbol.
+        interval : str
+            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
+            '1week'.
+        higher_interval : str
+            The higher interval on which to select symbols. Must be higher than the given interval.
+        HMP_candles : int
+            How many previous candles? The number of candles for the given interval and the higher interval.
+        
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame with the selected symbols, sorted by cumulative return in descending order.
+        """
+        query = "SELECT * FROM portfo"
+        portfo = pd.read_sql_query(query, self.conn_db)
+        num= portfo.shape[0]
+        while num <=num_symbols :
+            symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
+            if len(symb_df) > 0 :            
+                for index, row in symb_df.iterrows():
+                    amount = max(stock * percent_of_each_symbol / row['Close_x'].astype(float), row['min_amount_x'].astype(float))
+                    stat ,res= self.put_spot_order(row['symbol'], "buy", "market", amount)
+                    if (stat == "done") : # if order is placed store in portfo Table in DB
+                        num=+1
+                        df = pd.json_normalize(res["data"])
+                        try :
+                            df.to_sql('portofo', con=self.conn_db , if_exists='replace', index=False)
+                        except Exception as e:
+                            print("Can't store data !!!" , e)
+                    else :
+                        print("Error in placing order",stat,row['symbol'],res)
+            else :
+                print("No symbols found")
     
     def get_spot_balance(self):
         '''

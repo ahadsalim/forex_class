@@ -1,5 +1,8 @@
 {
     "api_key": "47D7C4B286224298BB3D88A9D7161A45" ,
     "api_secret" : "F0F2D4156F6892ED2F03576FEE74CFA658C5F8271DCE102D" ,
-    "loss_limit" : 0.95
+    "loss_limit" : 0.95 ,
+    "min_price_symbol" : 0.02 ,
+    "num_candle" : 50 ,
+    "db_name" : "crypto/crypto.db"
 }
