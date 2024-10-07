@@ -31,12 +31,13 @@ class Coinex_API(object):
     
     def __init__(self , access_id , secret_key , connection = None):
         """
-        Connects to the CoinEx API version 2
+        Constructor for the Coinex_API class
 
         Args:
-            api_key (str): Your CoinEx API key.
-            api_secret (str): Your CoinEx API secret.
-            connection (object, optional): Optional database connection object
+            access_id (str): Your CoinEx API key.
+            secret_key (str): Your CoinEx API secret.
+            connection (sqlite3.Connection): An open connection to a SQLite database where
+                data will be stored. If None, no data will be stored.
         """
 
         self.access_id = access_id
@@ -47,7 +48,16 @@ class Coinex_API(object):
 
     def gen_sign(self, method, request_path, body, timestamp):
         '''
-            Generate your signature string
+            Generate a signature for a request
+
+            Args:
+                method (str): Request method
+                request_path (str): API endpoint path
+                body (str): Request body
+                timestamp (str): Request timestamp
+
+            Returns:
+                str: Signature
         '''
         prepared_str = f"{method}{request_path}{body}{timestamp}"
         signature = hmac.new(
@@ -58,6 +68,16 @@ class Coinex_API(object):
         return signature
 
     def get_common_headers(self, signed_str, timestamp):
+        '''
+            Generate common headers for all requests
+
+            Args:
+                signed_str (str): Signed string
+                timestamp (str): Timestamp
+
+            Returns:
+                dict: Common headers
+        '''
         headers = self.HEADERS.copy()
         headers["X-COINEX-KEY"] = self.access_id
         headers["X-COINEX-SIGN"] = signed_str
@@ -67,8 +87,19 @@ class Coinex_API(object):
 
     def request(self, method, url, params={}, data=""):
         '''
-            Create request URL to get & set data
-            Return : Answer from CoinEx server
+            Make a request to CoinEx API
+
+            Args:
+                method (str): Request method, "GET" or "POST"
+                url (str): Request URL
+                params (dict, optional): Query string parameters
+                data (str, optional): Request body
+
+            Returns:
+                requests.Response: Response object
+
+            Raises:
+                ValueError: If the response status code is not 200
         '''
         req = urlparse(url)
         request_path = req.path
@@ -109,14 +140,25 @@ class Coinex_API(object):
 # ******************* Spot Market ********************
 
     def get_spot_market(self, ticker: str = "") -> Union[pd.DataFrame, dict]:
-        '''
-            Get information about ticker in spot market in CoinEx site
-            Args:
-                ticker (str): Optional, to get detail of ticker in exchange like : BTCUSDT. Default is "".
-            Returns:
-                Union[pd.DataFrame, dict]: If ticker is "" then it returns all tickers in exchange in DataFrame format.
-                                            If ticker is not "" then it returns detail of ticker in exchange in dict format.
-        '''
+        """
+        Get all available spot market pairs or a specific one
+
+        Parameters
+        ----------
+        ticker : str
+            The ticker symbol of the market pair to retrieve. If left empty, all available market pairs will be retrieved.
+
+        Returns
+        -------
+        Union[pd.DataFrame, dict]
+            If ticker is empty, returns a pandas DataFrame object containing all available market pairs.
+            If ticker is not empty, returns a dict containing the market data of the specified ticker.
+
+        Raises
+        ------
+        ValueError
+            If the request was not successful.
+        """
         request_path = "/spot/market"
         params = {"market": ticker}
         response = self.request(
@@ -136,7 +178,11 @@ class Coinex_API(object):
 
     def get_spot_price_ticker(self,ticker):
         '''
-            Get price info of the ticker among 24 hours ago in spot market
+            Get price of ticker in spot market in CoinEx site for 24 hours ago
+            Args:
+                ticker (str): The ticker to get its price.
+            Returns:
+                dict: A dict that contains the price of ticker.
         '''
         request_path = "/spot/ticker"
         params = {"market": ticker}
@@ -152,12 +198,26 @@ class Coinex_API(object):
             raise ValueError(res["message"])
     def save_filtered_spot_market (self,min_price):
         '''
-            This function updates the symbols information that price is upper than min_price every 24 hours and saves it in the tickers.csv file.
-            It only selects the symbols that end with 'USDT' and uses the last price to filter the symbols.
-            It also drops the columns that are not necessary for the analysis.
-            It updates the price, value, volume_sell, volume_buy columns for each symbol.
-            It then filters the symbols with price above min_price.
-            Finally, it saves the DataFrame to the tickers.csv file.
+            Save filtered spot market info to database
+
+            This function save the tickers in spot market to the database with the following columns:
+                - market (str): Symbol of the ticker
+                - min_amount (float): Minimum amount of the ticker
+                - maker_fee_rate (float): Maker fee rate of the ticker
+                - taker_fee_rate (float): Taker fee rate of the ticker
+                - is_amm_available (bool): If the ticker is available for AMM or not
+                - is_margin_available (bool): If the ticker is available for Margin or not
+                - price (float): Last price of the ticker
+                - value (float): Value of the ticker
+                - volume_sell (float): Volume sell of the ticker
+                - volume_buy (float): Volume buy of the ticker
+            The function will filter the symbols with price above min_price and save the remaining symbols to the database
+
+            Args:
+                min_price (float): Minimum price of the ticker to be saved to the database
+
+            Returns:
+                bool: If the saving is successful then return True, otherwise return the error message
         '''
         df = self.get_spot_market()
         # Select only the symbols that end with 'USDT'
@@ -346,7 +406,7 @@ class Coinex_API(object):
                 data_spot.loc[index, 'Sell'] = data['SELL']
                 data_spot.loc[index, 'Neutral'] = data['NEUTRAL']
             except Exception as e:
-                print("Error:",e)
+                print("Error for symbol : " + symbol + " ",e)
                 continue
         return data_spot
 # ****************** Portolio Management ******************
@@ -378,7 +438,7 @@ class Coinex_API(object):
         shared_tickers_df = pd.merge(tickers_df2, higher_tickers_df2, on='symbol', how='inner')
         top_symbols = shared_tickers_df.sort_values('Cum_Return_x', ascending=False)
         if len(top_symbols) == 0 :
-            return "empty"
+            return top_symbols
         else :
             top_symbols.drop(columns=['maker_fee_rate_x', 'maker_fee_rate_y', 'taker_fee_rate_y', 'Return_x', 'Return_y',
                                     'Value_x', 'Value_y','Volume_y','period_x','limit_x','Cum_Return_y', 'Cum_Value_y', 
@@ -387,44 +447,50 @@ class Coinex_API(object):
 
     def buy_portfo(self ,num_symbols ,stock , percent_of_each_symbol , interval, higher_interval , HMP_candles) :
         """
-        Buy a portfolio of num_symbols symbols with stock amount of money. The amount of money allocated to each symbol is
-        determined by percent_of_each_symbol, and the symbols are chosen based on the buy signal of the two given intervals.
-        
+        Buy a portfolio of num_symbols symbols with the amount of stock distributed among them in proportion to percent_of_each_symbol.
+        The symbols are selected from the result of symbol_Candidates method.
+        The order is market order
+
         Parameters
         ----------
         num_symbols : int
-            The number of symbols to buy.
+            The number of symbols to buy
         stock : float
-            The amount of money to allocate to the portfolio.
+            The total amount of stock to distribute among the symbols
         percent_of_each_symbol : float
-            The percentage of the stock to allocate to each symbol.
+            The percentage of the total amount of stock to use for each symbol
         interval : str
             The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'.
+            '1week'
         higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval.
+            The higher interval on which to select symbols. Must be higher than the given interval
         HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval.
-        
+            How many previous candles? The number of candles for the given interval and the higher interval
+
         Returns
         -------
-        pd.DataFrame
-            A DataFrame with the selected symbols, sorted by cumulative return in descending order.
+        None
         """
-        query = "SELECT * FROM portfo"
-        portfo = pd.read_sql_query(query, self.conn_db)
-        num= portfo.shape[0]
+        cursor = self.conn_db.cursor()
+        # Check if the table exists
+        cursor.execute(f"SELECT COUNT(*) FROM portfo")
+        result = cursor.fetchone()
+        if result is None:
+            num = 0
+        else:
+            num= result[0]
         while num <=num_symbols :
             symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
-                    amount = max(stock * percent_of_each_symbol / row['Close_x'].astype(float), row['min_amount_x'].astype(float))
+                    amount = max(stock * percent_of_each_symbol / row['Close_x'], row['min_amount_x'])
                     stat ,res= self.put_spot_order(row['symbol'], "buy", "market", amount)
                     if (stat == "done") : # if order is placed store in portfo Table in DB
                         num=+1
                         df = pd.json_normalize(res["data"])
+                        df['new_price'] = df['price']
                         try :
-                            df.to_sql('portofo', con=self.conn_db , if_exists='replace', index=False)
+                            df.to_sql('portofo', con=self.conn_db , if_exists='append', index=False)
                         except Exception as e:
                             print("Can't store data !!!" , e)
                     else :
@@ -432,6 +498,32 @@ class Coinex_API(object):
             else :
                 print("No symbols found")
     
+    def check_portfo(self , loss_limit):
+        cursor = self.conn_db.cursor()
+        # Check if the table exists
+        cursor.execute(f"SELECT COUNT(*) FROM portfo")
+        result = cursor.fetchone()
+        if result is None:
+            return "false"
+        else:
+            query = "SELECT * FROM portfo"  
+            portfo = pd.read_sql_query(query, self.conn_db)
+            for index, row in portfo.iterrows():
+                price = portfo.loc[index,"price"]
+                last_price=float(self.get_spot_price_ticker(row["market"])[0]["last"])
+                if (last_price < price * loss_limit) :
+                    # if price in under loss limit, sell it
+                    stat ,res= self.put_spot_order(row['market'], "sell", "market", row["amount"])
+                    if (stat == "done") :
+                        df = pd.json_normalize(res["data"])
+                        print(df)
+                        portfo = portfo.drop(index, axis=0) # delete symbol from portfo
+                        portfo.to_sql("portfo.csv", index=False) ################################################
+                    else :
+                        print("Error in placing order",stat,row['market'],res)
+                elif (last_price > price * 1.1) :
+                    print("# update price") ####################################################################
+
     def get_spot_balance(self):
         '''
             Get balance of your account in jason format
