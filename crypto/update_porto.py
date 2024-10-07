@@ -1,11 +1,17 @@
 import pandas as pd
+import json
 import Coinex_API_Class as Coinex
 
-api_key = "47D7C4B286224298BB3D88A9D7161A45"
-api_secret = "F0F2D4156F6892ED2F03576FEE74CFA658C5F8271DCE102D"
-coinex = Coinex.Coinex_API(api_key,api_secret)
-loss_limit = 0.9
-
+try :
+    with open('config.json', 'r') as f:
+        data = json.load(f)
+        api_key = data['api_key']
+        api_secret = data['api_secret']
+        coinex = Coinex.Coinex_API(api_key,api_secret)
+        loss_limit = data['loss_limit']
+except Exception as e:
+    print(f"Error: {e}")
+    
 portfo= pd.read_csv("portfo.csv")
 for index, row in portfo.iterrows():
     price = portfo.loc[index,"price"].astype(float)
