@@ -541,9 +541,14 @@ class Coinex_API(object):
         
     def get_deposit_address(self,currency,chain):
         '''
-            Get your Wallet Address for deposit
-            currency as string
-            chain as string ("TRC20" , "CSC" , "BEP20" , ...)
+            Get deposit address of your account in json format
+
+            Args:
+                currency (str): The currency of the address
+                chain (str): The chain of the address (TRC20, BEP20, ERC20)
+
+            Returns:
+                dict: A dict that contains the deposit address
         '''
         request_path = "/assets/deposit-address"
         params = {"ccy": currency, "chain": chain}
@@ -609,12 +614,25 @@ class Coinex_API(object):
         else:
             return "fail" , res["message"]
     def modify_order (self,ticker,order_id,amount=None,price=None) :
-        '''
-            ticker : name of ticker
-            order_id : Order ID
-            amount : Order amount, which should include at least one of the two parameters, amount/price
-            price :  Order price, which should include at least one of the two parameters, amount/price
-        '''
+        """
+        Modify an order
+
+        Parameters
+        ----------
+        ticker : str
+            The ticker symbol of the market pair to retrieve
+        order_id : str
+            The order id to modify
+        amount : float
+            The new amount of order
+        price : float
+            The new price of order
+
+        Returns
+        -------
+        dict
+            The result of the API call
+        """
         request_path = "/spot/modify-order"
         data = {
             "market": ticker,
@@ -636,9 +654,21 @@ class Coinex_API(object):
             raise ValueError(res["message"])
 
     def order_Status_Query(self,ticker,order_id):
-        '''
-            Get Status Order
-        '''
+        """
+        Query the status of an order
+
+        Parameters
+        ----------
+        ticker : str
+            The ticker symbol of the market pair to retrieve
+        order_id : str
+            The order id to query
+
+        Returns
+        -------
+        dict
+            The result of the API call
+        """
         request_path = "/spot/order-status"
         data = {
             "market": ticker,
