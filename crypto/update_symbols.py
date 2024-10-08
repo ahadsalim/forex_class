@@ -4,7 +4,7 @@ import sqlite3
 import Coinex_API_Class as Coinex
     
 try :
-    with open('crypto\config.json', 'r') as f:
+    with open('crypto/config.json', 'r') as f:
         data = json.load(f)
         api_key = data['api_key']
         api_secret = data['api_secret']

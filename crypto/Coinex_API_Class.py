@@ -483,7 +483,7 @@ class Coinex_API(object):
             symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
-                    amount = max(stock * percent_of_each_symbol / row['Close_x'], row['min_amount_x'])
+                    amount = max(stock * percent_of_each_symbol / float(row['Close_x']), float(row['min_amount_x']))
                     stat ,res= self.put_spot_order(row['symbol'], "buy", "market", amount)
                     if (stat == "done") : # if order is placed store in portfo Table in DB
                         num=+1
@@ -499,30 +499,61 @@ class Coinex_API(object):
                 print("No symbols found")
     
     def check_portfo(self , loss_limit):
+        """
+        Check if the portfolio table exists and if symbols in it have reached either the loss limit or a 10% profit.
+        If a symbol has reached the loss limit, sell it and delete it from the portfolio table.
+        If a symbol has reached a 10% profit, update its price in the portfolio table. 
+
+        Parameters
+        ----------
+        loss_limit : float
+            The percentage of the original price at which to sell a symbol if it has fallen below it.
+
+        Returns
+        -------
+        bool
+            True if the portfolio table exists and has been checked, False otherwise.
+        """
         cursor = self.conn_db.cursor()
         # Check if the table exists
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
         result = cursor.fetchone()
         if result is None:
-            return "false"
+            print("The portfo table in the database is empty.")
+            return False
         else:
             query = "SELECT * FROM portfo"  
             portfo = pd.read_sql_query(query, self.conn_db)
             for index, row in portfo.iterrows():
-                price = portfo.loc[index,"price"]
+                price = float(portfo.loc[index,"price"])
+                new_price = float(portfo.loc[index,"new_price"])
                 last_price=float(self.get_spot_price_ticker(row["market"])[0]["last"])
-                if (last_price < price * loss_limit) :
+                ind= max(price , new_price)
+                if (last_price < ind * loss_limit) :
                     # if price in under loss limit, sell it
                     stat ,res= self.put_spot_order(row['market'], "sell", "market", row["amount"])
                     if (stat == "done") :
                         df = pd.json_normalize(res["data"])
                         print(df)
-                        portfo = portfo.drop(index, axis=0) # delete symbol from portfo
-                        portfo.to_sql("portfo.csv", index=False) ################################################
+                        query = "DELETE FROM portfo WHERE market = " + row["market"]
+                        if cursor.execute(query) > 0:
+                            print ("Symbol Deleted from prtfolio successfully !")
+                            return True
+                        else :
+                            print ("Error in deleting symbol from prtfolio ! Do it manually !")
+
                     else :
                         print("Error in placing order",stat,row['market'],res)
+                        return False
                 elif (last_price > price * 1.1) :
-                    print("# update price") ####################################################################
+                    query = "UPDATE portfo SET new_price = " + str(last_price) + " WHERE market = " + row["market"]
+                    if cursor.execute(query) > 0:
+                        print ("Symbol Updated in prtfolio successfully !")
+                        return True
+                    else :
+                        print ("Error in updating symbol in prtfolio !")
+                        return False
+                    
 
     def get_spot_balance(self):
         '''
