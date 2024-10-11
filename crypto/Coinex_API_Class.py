@@ -555,7 +555,7 @@ class Coinex_API(object):
                 ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
                 if price_now <= ind :
                     # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount="all")###################
+                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount="all")################### jjju
                     if (stat == "done") :
                         #df = pd.json_normalize(res["data"])
                         query = "DELETE FROM portfo WHERE market = ?"
