@@ -17,6 +17,6 @@ except Exception as e:
 conn = sqlite3.connect(db_name)
 coinex = Coinex.Coinex_API(api_key, api_secret, conn)
 
-coinex.buy_portfo(num_symbols=3, cash=25,percent_of_each_symbol=0.2, interval="5min",higher_interval="15min",HMP_candles=num_candles)
+coinex.make_portfo(num_symbols=5, cash=30,percent_of_each_symbol=0.2, interval="5min",higher_interval="15min",HMP_candles=num_candles , client_id=client_id)
 
 conn.close()

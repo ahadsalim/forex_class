@@ -447,32 +447,33 @@ class Coinex_API(object):
                                     'Time_y','min_amount_y','Close_y','period_y', 'limit_y', 'Recomandation_y', 'Buy_y', 'Sell_y', 'Neutral_y'], inplace=True)
             return top_symbols
 
-    def buy_portfo(self ,num_symbols ,cash , percent_of_each_symbol , interval, higher_interval , HMP_candles) :
+    def make_portfo(self ,num_symbols ,cash , percent_of_each_symbol , interval, higher_interval , HMP_candles , client_id) :
         """
-        Buy a portfolio of num_symbols symbols with the amount of stock distributed among them in proportion to percent_of_each_symbol.
-        The symbols are selected from the result of symbol_Candidates method.
-        The order is market order
-
+        Make a portfolio of num_symbols symbols with the given cash and percent of each symbol, and store them in the DB.
+        
         Parameters
         ----------
         num_symbols : int
-            The number of symbols to buy
-        cash : float
-            The total amount of stock to distribute among the symbols
+            The number of symbols to include in the portfolio.
+        cash : float (by USD)
+            The maximum amount of cash to use for the portfolio.
         percent_of_each_symbol : float
-            The percentage of the total amount of stock to use for each symbol
+            The percentage of the total cash to use for each symbol.
         interval : str
             The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'
+            '1week'.
         higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval
+            The higher interval on which to select symbols. Must be higher than the given interval.
         HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval
-
+            How many previous candles? The number of candles for the given interval and the higher interval.
+        client_id : str
+            The client_id to use for SPOT Order in the portfolio.
+        
         Returns
         -------
         None
         """
+        self.sync_db(client_id) # sync DB with Balance of your account
         cursor = self.conn_db.cursor()
         # Check if the table exists
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
@@ -481,30 +482,41 @@ class Coinex_API(object):
             num = 0
         else:
             num= result[0]
-        while num <=num_symbols :
+        while num < num_symbols :
             symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
             max_pay_symbol = cash * percent_of_each_symbol  # maximum pay for each symbol
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
-                    amount = max( max_pay_symbol/ float(row['Close_x']), float(row['min_amount_x'])) # ensure minimum order support
-                    stat ,res= self.put_spot_order(row['symbol'], "buy", "market", amount)
-                    if (stat == "done") : # if order is placed & executed
-                        num=+1
-                        query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                        try:
-                            now = str(int(time.time() * 1000))
-                            cursor.execute(query,(res['amount'],res["base_fee"],res['ccy'],res['client_id'],res['created_at'],res['discount_fee'],res['filled_amount'],res['filled_value'],res['last_fill_amount'],res['last_fill_price'],res['maker_fee_rate'],res['market'],res['market_type'],res['order_id'],res['price'],res['quote_fee'],res['side'],res['taker_fee_rate'],res['type'],res['unfilled_amount'],res['updated_at'],res['last_fill_price']))
-                        except sqlite3.Error as e:
-                            print ("Error in adding symbol to prtfo in DB ! Do it manually !" , e)
-                            self.conn_db.rollback()  # Rollback changes in case of an error
-                        else:
-                            self.conn_db.commit()  # Commit changes to the database
-                            print ("{} added to portfo in DB".format(row["symbol"]))
-                    else :
-                        print("Error in placing order",stat,row['symbol'],res)
+                    # Checking that symbols are not duplicated
+                    not_duplicate = True
+                    if num != 0 :
+                        cursor.execute("SELECT market FROM portfo")
+                        r = cursor.fetchall()
+                        for tuple_item in r :
+                            for symb in tuple_item:
+                                if row['symbol'] == symb:
+                                    print ("The symbol is repeated : ",row['symbol'])
+                                    not_duplicate = False
+                    if not_duplicate :
+                        amount = max( int(max_pay_symbol/ float(row['Close_x'])), float(row['min_amount_x'])) # ensure minimum order support
+                        amount_usdt= amount * float(row['Close_x'])
+                        stat ,res= self.put_spot_order(ticker=row['symbol'], side="buy", order_type="market", amount=amount_usdt)
+                        if stat ==  'done' : # if order is placed & executed
+                            num += 1
+                            query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                            try:
+                                cursor.execute(query,(res['amount'],res["base_fee"],res['ccy'],res['client_id'],res['created_at'],res['discount_fee'],res['filled_amount'],res['filled_value'],res['last_fill_amount'],res['last_fill_price'],res['maker_fee_rate'],res['market'],res['market_type'],res['order_id'],res['price'],res['quote_fee'],res['side'],res['taker_fee_rate'],res['type'],res['unfilled_amount'],res['updated_at'],res['last_fill_price']))
+                            except sqlite3.Error as e:
+                                print ("Error in adding symbol to portfo in DB ! Do it manually !" , e)
+                                self.conn_db.rollback()  # Rollback changes in case of an error
+                            else:
+                                self.conn_db.commit()  # Commit changes to the database
+                                print ("{} added to portfo in DB".format(row["symbol"]))
+                        else :
+                            print("Error in placing order : ",stat,row['symbol'],res)
             else :
                 print("No symbols found")
-        print("Portfo is completed!")
+        print("The portfolio is complete !")
     def check_portfo(self , loss_limit, client_id):
         """
         Check if the portfolio table exists and if symbols in it have reached either the loss limit or a 10% profit.
@@ -535,42 +547,55 @@ class Coinex_API(object):
             for index, row in portfo.iterrows():
                 buy_price = float(portfo.loc[index,"last_fill_price"])
                 new_price = float(portfo.loc[index,"new_price"])
-                price_now=float(self.get_spot_price_ticker(row["market"])[0]["last"]) ##################################
+                price_now=float(self.get_spot_price_ticker(row["market"])[0]["last"])
                 ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
                 if price_now <= ind :
                     # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount=row["filled_amount"])
+                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount=row["amount"]*price_now)
                     if (stat == "done") :
                         df = pd.json_normalize(res["data"])
-                        query = "DELETE FROM portfo WHERE market = " + row["market"]
-                        if cursor.execute(query) > 0:
-                            print ("Symbol Deleted from prtfolio successfully !")
+                        query = "DELETE FROM portfo WHERE market = ?"
+                        if cursor.execute(query,row["market"]) > 0:
+                            print ("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
-                            return True
                         else :
-                            print ("Error in deleting symbol from prtfolio ! Do it manually !")
-
+                            print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]))
+                        return True
                     else :
                         print("Error in placing order",stat,row['market'],res)
                         return False
                 else :
                     if price_now > new_price : # Take profit , update price to take profit
-                        query = "UPDATE portfo SET new_price =? WHERE market=? "
+                        query = "UPDATE portfo SET new_price =? WHERE market= ?"
                         try:
                             cursor.execute(query, (price_now , row["market"]))
                         except sqlite3.Error as e:
-                            print("Error in updating symbol price ! ", e)
+                            print("Error in updating {}} price ! ".format(row["market"]), e)
                             self.conn_db.rollback()  # Rollback changes in case of an error
                             return False
                         else:
-                            print ("The price has now been replaced !")
+                            print ("The new price of {} has now been replaced !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
                             return True
                     else :
-                        print(r"The price now is less than 10% different from the previous price !")
+                        print("The current price is equal to the purchase price or less than {} of the purchase price.".format(loss_limit))
                         return True
                     
     def sync_db(self,client_id) :
+        """
+        Sync the portfo table in the database with the current spot account balance of the given client_id.
+
+        This function will remove symbols that no longer exist in the account balance from the portfo table, and add any new symbols that exist in the account balance to the portfo table.
+
+        Parameters
+        ----------
+        client_id : str
+            The client_id to use for SPOT Order in the operation.
+
+        Returns
+        -------
+        None
+        """
         output = self.get_spot_balance()
         balance_df = pd.json_normalize(output)
         balance_df = balance_df.drop(balance_df[balance_df['ccy'] == "USDT"].index)
@@ -602,7 +627,7 @@ class Coinex_API(object):
                 query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 try:
                     now = str(int(time.time() * 1000))
-                    cursor.execute(query, (row["available"],0,row['symbol'][:-4], client_id, now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
+                    cursor.execute(query, (float(row["available"])*float(data["last"]),0,row['symbol'][:-4], client_id, now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
                 except sqlite3.Error as e:
                     print ("Error in adding symbol to prtfo in DB ! Do it manually !" , e)
                     self.conn_db.rollback()  # Rollback changes in case of an error
@@ -664,7 +689,7 @@ class Coinex_API(object):
         order_type : str
             limit/market/maker_only/ioc/fok
         amount : float
-            Order amount (this parameter or price must have value)
+            Order amount by USDT (this parameter or price must have value)
         price : float
             Order price (this parameter or amount must have value)
         is_hide : bool
@@ -697,7 +722,7 @@ class Coinex_API(object):
         )
         res = response.json()
         if res["code"] == 0:
-            return "done " ,res["data"]
+            return "done" ,res["data"]
         else:
             return "fail" , res["message"]
     def modify_order (self,ticker,order_id,amount=None,price=None) :
