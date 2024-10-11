@@ -5,5 +5,7 @@
     "min_price_symbol" : 0.02 ,
     "num_candle" : 50 ,
     "db_name" : "crypto/crypto.db" ,
-    "client_id" : "Ahad1360"
+    "client_id" : "Ahad1360" ,
+    "interval" : "5min" ,
+    "higher_interval" : "30min"
 }

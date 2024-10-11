@@ -507,13 +507,17 @@ class Coinex_API(object):
                             try:
                                 cursor.execute(query,(res['amount'],res["base_fee"],res['ccy'],res['client_id'],res['created_at'],res['discount_fee'],res['filled_amount'],res['filled_value'],res['last_fill_amount'],res['last_fill_price'],res['maker_fee_rate'],res['market'],res['market_type'],res['order_id'],res['price'],res['quote_fee'],res['side'],res['taker_fee_rate'],res['type'],res['unfilled_amount'],res['updated_at'],res['last_fill_price']))
                             except sqlite3.Error as e:
+                                print("-"*60)
                                 print ("Error in adding symbol to portfo in DB ! Do it manually !" , e)
+                                print("-"*60)
                                 self.conn_db.rollback()  # Rollback changes in case of an error
                             else:
                                 self.conn_db.commit()  # Commit changes to the database
                                 print ("{} added to portfo in DB".format(row["symbol"]))
                         else :
+                            print("-"*60)
                             print("Error in placing order : ",stat,row['symbol'],res)
+                            print("-"*60)
             else :
                 print("No symbols found")
         print("The portfolio is complete !")
@@ -539,7 +543,7 @@ class Coinex_API(object):
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
         result = cursor.fetchone()
         if result is None:
-            print("The portfo table in the database is empty.")
+            print("The portfo is empty.")
             return False
         else:
             query = "SELECT * FROM portfo"  
@@ -551,35 +555,36 @@ class Coinex_API(object):
                 ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
                 if price_now <= ind :
                     # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount=row["amount"]*price_now)
+                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount="all")###################
                     if (stat == "done") :
-                        df = pd.json_normalize(res["data"])
+                        #df = pd.json_normalize(res["data"])
                         query = "DELETE FROM portfo WHERE market = ?"
                         if cursor.execute(query,row["market"]) > 0:
                             print ("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
                         else :
+                            print("-"*60)
                             print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]))
-                        return True
+                            print("-"*60)
                     else :
+                        print("-"*60)
                         print("Error in placing order",stat,row['market'],res)
-                        return False
+                        print("-"*60)
                 else :
                     if price_now > new_price : # Take profit , update price to take profit
                         query = "UPDATE portfo SET new_price =? WHERE market= ?"
                         try:
                             cursor.execute(query, (price_now , row["market"]))
                         except sqlite3.Error as e:
+                            print("-"*60)
                             print("Error in updating {}} price ! ".format(row["market"]), e)
+                            print("-"*60)
                             self.conn_db.rollback()  # Rollback changes in case of an error
-                            return False
                         else:
                             print ("The new price of {} has now been replaced !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
-                            return True
                     else :
-                        print("The current price is equal to the purchase price or less than {} of the purchase price.".format(loss_limit))
-                        return True
+                        print("The current price of {} is equal to the purchase price or less than {} of the purchase price.".format(row["market"],loss_limit))
                     
     def sync_db(self,client_id) :
         """
@@ -611,14 +616,15 @@ class Coinex_API(object):
                 try:
                     cursor.execute(query, (row['market'],)) 
                 except sqlite3.Error as e:
+                    print("-"*60)
                     print ("Error in deleting symbol from prtfo in DB ! Do it manually !" , e)
+                    print("-"*60)
                     self.conn_db.rollback()  # Rollback changes in case of an error
                 else:
                     self.conn_db.commit()  # Commit changes to the database
                     print ("{} deleted from portfo in DB".format(row["market"]))
             else :
-                print("-" * 75)
-                print("You have {} {} in your account".format(row["filled_amount"],row["market"][:-4]))
+                print("You have {} {} ".format(row["filled_amount"],row["market"][:-4]))
         # Adding symbols that exist in portfo DB
         for index, row in balance_df.iterrows():
             result = portfo_df.loc[portfo_df['market'] == row["symbol"]]
@@ -629,7 +635,9 @@ class Coinex_API(object):
                     now = str(int(time.time() * 1000))
                     cursor.execute(query, (float(row["available"])*float(data["last"]),0,row['symbol'][:-4], client_id, now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
                 except sqlite3.Error as e:
+                    print("-"*60)
                     print ("Error in adding symbol to prtfo in DB ! Do it manually !" , e)
+                    print("-"*60)
                     self.conn_db.rollback()  # Rollback changes in case of an error
                 else:
                     self.conn_db.commit()  # Commit changes to the database

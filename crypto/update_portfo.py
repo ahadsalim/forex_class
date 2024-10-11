@@ -11,15 +11,14 @@ try :
         num_candles = data['num_candle']
         loss_limit = data['loss_limit']
         client_id = data['client_id']
+        interval = data['interval']
+        higher_interval = data['higher_interval']
 except Exception as e:
     print(f"Error: {e}")
 
 conn = sqlite3.connect(db_name)
 coinex = Coinex.Coinex_API(api_key, api_secret, connection=conn , client_id=client_id)
 while True :
-    if coinex.check_portfo(loss_limit=loss_limit,client_id=client_id):
-        print("Every thing is OK.")
-    else :
-        print("Pay attention to the errors !!!")
+    coinex.check_portfo(loss_limit=loss_limit,client_id=client_id)
 
 conn.close()
