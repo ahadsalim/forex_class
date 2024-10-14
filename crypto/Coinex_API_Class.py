@@ -497,7 +497,7 @@ class Coinex_API(object):
                                 if row['symbol'] == symb:
                                     print ("The symbol is repeated : ",row['symbol'])
                                     not_duplicate = False
-                    if not_duplicate :
+                    if not_duplicate and num < num_symbols:
                         amount = max( int(max_pay_symbol/ float(row['Close_x'])), float(row['min_amount_x'])) # ensure minimum order support
                         amount_usdt= amount * float(row['Close_x'])
                         stat ,res= self.put_spot_order(ticker=row['symbol'], side="buy", order_type="market", amount=amount_usdt)
@@ -549,23 +549,26 @@ class Coinex_API(object):
             query = "SELECT * FROM portfo"  
             portfo = pd.read_sql_query(query, self.conn_db)
             for index, row in portfo.iterrows():
-                buy_price = float(portfo.loc[index,"last_fill_price"])
-                new_price = float(portfo.loc[index,"new_price"])
+                buy_price = float(row["last_fill_price"])
+                new_price = float(row["new_price"])
                 price_now=float(self.get_spot_price_ticker(row["market"])[0]["last"])
                 ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
                 if price_now <= ind :
                     # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount="all")################### jjju
+                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount= float(row["filled_amount"]))
                     if (stat == "done") :
                         #df = pd.json_normalize(res["data"])
                         query = "DELETE FROM portfo WHERE market = ?"
-                        if cursor.execute(query,row["market"]) > 0:
+                        try:
+                            cursor.execute(query, (row['market'],)) 
+                        except sqlite3.Error as e:
+                            print("-"*60)
+                            print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]),e)
+                            print("-"*60)
+                            self.conn_db.rollback()  # Rollback changes in case of an error
+                        else:
                             print ("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
-                        else :
-                            print("-"*60)
-                            print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]))
-                            print("-"*60)
                     else :
                         print("-"*60)
                         print("Error in placing order",stat,row['market'],res)
@@ -577,7 +580,7 @@ class Coinex_API(object):
                             cursor.execute(query, (price_now , row["market"]))
                         except sqlite3.Error as e:
                             print("-"*60)
-                            print("Error in updating {}} price ! ".format(row["market"]), e)
+                            print("Error in updating {} price !".format(row["market"]) , e)
                             print("-"*60)
                             self.conn_db.rollback()  # Rollback changes in case of an error
                         else:
@@ -617,14 +620,26 @@ class Coinex_API(object):
                     cursor.execute(query, (row['market'],)) 
                 except sqlite3.Error as e:
                     print("-"*60)
-                    print ("Error in deleting symbol from prtfo in DB ! Do it manually !" , e)
+                    print ("Error in deleting symbol {} from prtfo in DB ! Do it manually !".format(row['market']) , e)
                     print("-"*60)
                     self.conn_db.rollback()  # Rollback changes in case of an error
                 else:
                     self.conn_db.commit()  # Commit changes to the database
                     print ("{} deleted from portfo in DB".format(row["market"]))
             else :
-                print("You have {} {} ".format(row["filled_amount"],row["market"][:-4]))
+                # Update amount of symbols in portfo DB for when sell some of it manualy !
+                query = "UPDATE portfo SET filled_amount = ? WHERE market= ?"
+                try:
+                    amount= balance_df[balance_df['symbol'] == row["market"]]['available']
+                    cursor.execute(query, (float(amount.iloc[0]),row['market'])) 
+                except sqlite3.Error as e:
+                    print("-"*60)
+                    print ("Error in updating {} amount in prtfo DB ! Do it manually !".format(row['market']) , e)
+                    print("-"*60)
+                    self.conn_db.rollback()  # Rollback changes in case of an error
+                else:
+                    self.conn_db.commit()  # Commit changes to the database
+                print("You own {} {} at {} per one".format(row["filled_amount"],row["market"][:-4],row['new_price']))
         # Adding symbols that exist in portfo DB
         for index, row in balance_df.iterrows():
             result = portfo_df.loc[portfo_df['market'] == row["symbol"]]
@@ -642,8 +657,9 @@ class Coinex_API(object):
                 else:
                     self.conn_db.commit()  # Commit changes to the database
                     print ("{} added to portfo in DB".format(row["symbol"]))
-                
+        # Update amount of symbols in portfo DB for when sell some of it manualy !
 
+    
     def get_spot_balance(self):
         '''
             Get balance of your account in jason format
@@ -732,7 +748,7 @@ class Coinex_API(object):
         if res["code"] == 0:
             return "done" ,res["data"]
         else:
-            return "fail" , res["message"]
+            return "fail" , res
     def modify_order (self,ticker,order_id,amount=None,price=None) :
         """
         Modify an order
