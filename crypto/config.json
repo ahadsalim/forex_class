@@ -1,11 +1,11 @@
 {
     "api_key": "47D7C4B286224298BB3D88A9D7161A45" ,
     "api_secret" : "F0F2D4156F6892ED2F03576FEE74CFA658C5F8271DCE102D" ,
-    "loss_limit" : 0.97 ,
-    "min_price_symbol" : 0.02 ,
+    "loss_limit" : 0.98 ,
+    "min_price_symbol" : 0.03 ,
     "num_candle" : 50 ,
     "db_name" : "crypto/crypto.db" ,
     "client_id" : "Ahad1360" ,
-    "interval" : "5min" ,
-    "higher_interval" : "30min"
+    "interval" : "15min" ,
+    "higher_interval" : "1hour"
 }

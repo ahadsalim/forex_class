@@ -867,4 +867,70 @@ class Coinex_API(object):
             return res["data"]
         else :
             raise ValueError(res["message"])
-        
+
+    def get_spot_history(self, type_h= "trade", start_time=None, ccy=None , limit=90 , page = None):
+        cursor = self.conn_db.cursor()
+        cursor.execute("SELECT ltime FROM transactions ORDER BY ltime DESC LIMIT 1")
+        result = cursor.fetchone()
+        if result is None:
+            ltime = 0
+        else:
+            ltime= result[0]
+        if start_time == None :
+            start_time = int(ltime)
+        request_path = "/assets/spot/transcation-history"
+        df2= pd.DataFrame()
+        index =0
+        params = {"type": type_h , "ccy": ccy , "limit": limit , "page": page , "start_time" : start_time }
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            params=params,
+        )
+        res=response.json()
+        if res["code"]==0 :
+            df=pd.json_normalize(res["data"])
+            for i in range(0, len(df), 3):
+                if df.iloc[i]['created_at'] > start_time :
+                    df2.loc[index,'ltime']=df.iloc[i]['created_at']
+                    df2.loc[index,'Time']=pd.to_datetime(df.iloc[i]['created_at'] , unit="ms")#
+                    df2.loc[index,'buy']=df.iloc[i]['ccy']#
+                    df2.loc[index,'amount']=df.iloc[i+1]['change']#
+                    df2.loc[index,'fee']=df.iloc[i]['change']#
+                    df2.loc[index,'balance']=df.iloc[i]['balance']#
+                    df2.loc[index,'sold']=df.iloc[i+2]['ccy']
+                    df2.loc[index,'pay']=df.iloc[i+2]['change']#
+                    index+=1
+            df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
+        else :
+            raise ValueError(res['message'])
+
+    def calculate_profit(self) :
+        cursor = self.conn_db.cursor()
+        query = "SELECT * FROM transactions"  
+        df = pd.read_sql_query(query, self.conn_db)
+        df_b = df[df['sold']== 'USDT'].copy()
+        df2=pd.DataFrame()
+        i=0
+        for index, row in df_b.iterrows():
+            df2.loc[i,'Time_buy']= row['ltime']
+            df2.loc[i,'ccy'] = row['buy']
+            df2.loc[i,'pure_amount']= row['balance']
+            df2.loc[i,'pay_USDT']= row['pay']
+            df2.loc[i,'Time_sold']= None
+            df2.loc[i,'recieve']= None
+            df2.loc[i,'proft']= None 
+            i +=1
+        print(df_b)        
+        df_s = df[df['buy']== 'USDT'].copy()
+        '''
+        for index, row in df_s.iterrows():
+               nearest_sell = df3['ltime'].sub(int(row['ltime'])).abs().idxmin()
+            df2.loc[index,'Time_sold'] = df.loc[nearest_sell,'ltime']
+            df2.loc[index,'recieve'] = df.loc[nearest_sell,'balance']
+            df2.loc[index,'proft'] = df2['recieve']-df2['pay_USDT']
+        print(df2)
+        return df2
+        '''
+               
+      
