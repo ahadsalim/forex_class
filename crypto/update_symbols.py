@@ -17,7 +17,7 @@ except Exception as e:
 
 with sqlite3.connect(db_name) as conn:
     coinex = Coinex.Coinex_API(api_key, api_secret, conn)
-    ret = coinex.save_filtered_spot_market(min_price_symbol)
+    ret = coinex.filter_spot_market(min_price_symbol)
     if  ret == True:
         # Notify me this is updated !
         print("The symbol table in the database has been successfully updated.")
