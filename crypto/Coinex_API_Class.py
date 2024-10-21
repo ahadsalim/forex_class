@@ -1,13 +1,13 @@
-import hashlib
 import json
 import time
 import hmac
+import hashlib
 import sqlite3
 import requests
+import concurrent.futures
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from typing import Union
 from tradingview_ta import TA_Handler, Interval, Exchange , TradingView
 from urllib.parse import urlparse
 
@@ -141,6 +141,7 @@ class Coinex_API(object):
         if res["code"] == 0:
             df = pd.json_normalize(res["data"])
             if df.shape[0] != 0:  # If there is any data for this ticker
+                df2['symbol']=ticker
                 df2['Time'] = pd.to_datetime(df['created_at'], unit='ms')
                 df2['Open'] = df["open"].astype(float)
                 df2['High'] = df["high"].astype(float)
@@ -151,7 +152,8 @@ class Coinex_API(object):
                 df2['Volume'] = df["volume"].astype(float)
                 df2['Value'] = df["value"].astype(float)
                 df2['Cum_Value'] = df2['Value'].cumsum()
-                return df2
+               
+                return df2.iloc[-1]
             else:
                 return False
         else:
@@ -167,7 +169,7 @@ class Coinex_API(object):
         for index, symbol in tqdm(markets.iterrows(), total=len(markets) ,desc=desc) :
             ticker = symbol['market']
             try:
-                data = self.get_spot_kline(ticker, period, limit).iloc[-1]
+                data = self.get_spot_kline(ticker, period, limit)
                 info = {"Time": [data["Time"]], "symbol": [ticker], "min_amount": [symbol["min_amount"]],
                         "maker_fee_rate": [symbol["maker_fee_rate"]], "taker_fee_rate": [symbol["taker_fee_rate"]],
                         "Close": [data['Close']], "Return": [data['Return']], "Cum_Return": [data["Cum_Return"]],
@@ -182,7 +184,54 @@ class Coinex_API(object):
                 print(e)
                 continue
         return df
-    
+    '''
+    def async_calculate_cumret_tickers(self, period: str, limit: int) : # calculate the cumulative return of all tickers in DB
+        query = "SELECT * FROM symbols"
+        markets = pd.read_sql_query(query, self.conn_db)
+
+        df = pd.DataFrame(columns=['Time', "symbol", "min_amount", "maker_fee_rate", "taker_fee_rate",
+                                   'Close', 'Return', 'Cum_Return', 'Volume', 'Value', 'Cum_Value', 'period', 'limit'])
+        desc = "Get info From CoinEx < " + period + " > "
+        
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=60)
+        futures = []
+
+        for index, symbol in tqdm(markets.iterrows(), total=len(markets), desc=desc):
+            ticker = symbol['market']
+            future = executor.submit(self.get_spot_kline, ticker, period, limit)
+            futures.append(future)
+            # اضافه کردن تاخیر برای رعایت محدودیت نرخ درخواست
+            time.sleep(1 / 60)
+
+
+        for future in futures:
+            try:
+                data = future.result()
+                info = {"Time": [data["Time"]], "symbol": [ticker], "min_amount": [symbol["min_amount"]],
+                    "maker_fee_rate": [symbol["maker_fee_rate"]], "taker_fee_rate": [symbol["taker_fee_rate"]],
+                    "Close": [data['Close']], "Return": [data['Return']], "Cum_Return": [data["Cum_Return"]],
+                    "Volume": [data['Volume']], "Value": [data["Value"]], "Cum_Value": [data['Cum_Value']],
+                    "period": [period], "limit": [limit]}
+                info = pd.DataFrame(info)
+            
+                if df.empty:
+                    df = info.copy()
+                else:
+                    df = pd.concat([df, info], ignore_index=True)
+            except Exception as e:
+                print(e)
+                continue
+        print(df)
+        return df
+
+            
+        for index,symbol in enumerate(markets):
+            data = self.get_spot_kline(symbol, period, limit)
+            print(data)
+            
+            
+        return df
+    '''
     def get_ta_tickers (self,period,limit) : # Get Technical Analysis of all tickers in DB from        
         data_spot = self.calculate_cumret_tickers(period,limit)
         data_spot['Recomandation'] = None
@@ -219,6 +268,7 @@ class Coinex_API(object):
                 print("Error for symbol : " + symbol + " ",e)
                 continue
         return data_spot
+    
 # ****************** Portolio Management ******************
     def symbol_Candidates(self,interval, higher_interval , HMP_candles):
         """
@@ -328,6 +378,7 @@ class Coinex_API(object):
             else :
                 print("No symbols found")
         print("The portfolio is complete !")
+        
     def check_portfo(self , loss_limit, client_id):
         """
         Check if the portfolio table exists and if symbols in it have reached either the loss limit or a 10% profit.
