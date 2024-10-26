@@ -1,0 +1,12 @@
+{
+    "username": 6718513 ,
+    "password" : "1j}l&G4Q" ,
+    "exchange_server" : "xChief-MT5" ,
+    "loss_limit" : 0.98 ,
+    "take_profit" : 1.02 ,
+    "num_candle" : 90 ,
+    "db_name" : "forex/forex.db" ,
+    "interval" : 1 ,
+    "sleep_check" : 450 ,
+    "higher_interval" : 30
+}
