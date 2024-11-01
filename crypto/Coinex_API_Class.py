@@ -23,15 +23,6 @@ class Coinex_API(object):
         return "This class use to work with CoinEx Exchange site"
     
     def __init__(self , access_id , secret_key , connection = None , client_id=None):
-        """
-        Constructor for the Coinex_API class
-
-        Args:
-            access_id (str): Your CoinEx API key.
-            secret_key (str): Your CoinEx API secret.
-            connection (sqlite3.Connection): An open connection to a SQLite database where
-                data will be stored. If None, no data will be stored.
-        """
         self.access_id = access_id
         self.secret_key = secret_key
         self.conn_db    = connection
@@ -287,23 +278,26 @@ class Coinex_API(object):
                 print("No symbols found")
         print("The portfolio is complete !")
         
-    def check_portfo(self , loss_limit, client_id):
+    def check_portfo(self, loss_limit, take_profit, client_id):
         """
-        Check if the portfolio table exists and if symbols in it have reached either the loss limit or a 10% profit.
-        If a symbol has reached the loss limit, sell it and delete it from the portfolio table.
-        If a symbol has reached a 10% profit, update its price in the portfolio table. 
+        Monitors and manages the portfolio by checking current prices against specified loss limits and take profit targets.
+        Sells assets if the price falls below the loss limit or updates the price if it exceeds the take profit target.
 
         Parameters
         ----------
         loss_limit : float
-            The percentage of the original price at which to sell a symbol if it has fallen below it.
+            The threshold below which an asset should be sold to prevent further loss.
+        take_profit : float
+            The target price at which profit should be taken, updating the asset's price if exceeded.
+        client_id : str
+            The identifier for the client whose portfolio is being managed.
 
         Returns
         -------
         bool
-            True if the portfolio table exists and has been checked, False otherwise.
+            Returns False if the portfolio is empty, otherwise performs operations on the portfolio.
         """
-        self.sync_db(client_id) # sync DB with your account
+        self.sync_db(client_id)  # sync DB with your account
         cursor = self.conn_db.cursor()
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
         result = cursor.fetchone()
@@ -311,47 +305,52 @@ class Coinex_API(object):
             print("The portfo is empty.")
             return False
         else:
-            query = "SELECT * FROM portfo"  
+            query = "SELECT * FROM portfo"
             portfo = pd.read_sql_query(query, self.conn_db)
             for index, row in portfo.iterrows():
                 buy_price = float(row["last_fill_price"])
                 new_price = float(row["new_price"])
-                price_now=float(self.get_spot_price_ticker(row["market"])[0]["last"])
-                ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
-                if price_now <= ind :
+                price_now = float(self.get_spot_price_ticker(row["market"])[0]["last"])
+                price_proft = buy_price * take_profit
+                if price_now < price_proft:
+                    price_loss = max(buy_price * loss_limit, price_now * loss_limit)
+                else:
+                    price_loss = price_proft
+
+                if price_now <= price_loss:
                     # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount= float(row["filled_amount"]))
-                    if (stat == "done") :
+                    stat, res = self.put_spot_order(ticker=row['market'], side="sell", order_type="market", amount=float(row["filled_amount"]))
+                    if (stat == "done"):
                         query = "DELETE FROM portfo WHERE market = ?"
                         try:
-                            cursor.execute(query, (row['market'],)) 
+                            cursor.execute(query, (row['market'],))
                         except sqlite3.Error as e:
-                            print("-"*60)
-                            print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]),e)
-                            print("-"*60)
+                            print("-" * 60)
+                            print("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]), e)
+                            print("-" * 60)
                             self.conn_db.rollback()  # Rollback changes in case of an error
                         else:
-                            print ("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
+                            print("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
-                    else :
-                        print("-"*60)
-                        print("Error in placing order",stat,row['market'],res)
-                        print("-"*60)
-                else :
-                    if price_now > new_price : # Take profit , update price to take profit
+                    else:
+                        print("-" * 60)
+                        print("Error in placing order", stat, row['market'], res)
+                        print("-" * 60)
+                else:
+                    if price_now > new_price:  # Take profit , update price to take profit
                         query = "UPDATE portfo SET new_price =? WHERE market= ?"
                         try:
-                            cursor.execute(query, (price_now , row["market"]))
+                            cursor.execute(query, (price_now, row["market"]))
                         except sqlite3.Error as e:
-                            print("-"*60)
-                            print("Error in updating {} price !".format(row["market"]) , e)
-                            print("-"*60)
+                            print("-" * 60)
+                            print("Error in updating {} price !".format(row["market"]), e)
+                            print("-" * 60)
                             self.conn_db.rollback()  # Rollback changes in case of an error
                         else:
-                            print ("The new price of {} has now been replaced !".format(row["market"]))
+                            print("The new price of {} has now been replaced !".format(row["market"]))
                             self.conn_db.commit()  # Commit changes to the database
-                    else :
-                        print("The current price of {} is equal to the purchase price or less than {} of the purchase price.".format(row["market"],loss_limit))
+                    else:
+                        print("The current price of {} is equal to the purchase price or less than {} of the purchase price.".format(row["market"], loss_limit))
                     
     def sync_db(self,client_id) : # sync DB with your account
         output = self.get_spot_balance()

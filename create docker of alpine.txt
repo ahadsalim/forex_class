@@ -1,0 +1,13 @@
+
+apk update && apk upgrade
+apk add python3 python3-dev sqlite
+python3 -m venv my_env
+source my_env/bin/activate
+pip install --upgrade pip
+pip install requests
+pip install tqdm
+pip install pandas
+pip install tradingview_ta
+pip install schedule
+apk add git
+got clone https://github.com/ahadsalim/forex_class.git

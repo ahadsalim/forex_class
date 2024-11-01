@@ -19,7 +19,7 @@ except Exception as e:
 
 with sqlite3.connect(db_name) as conn:
     coinex = Coinex.Coinex_API(api_key, api_secret, conn)
-    schedule.every(6).hours.do(coinex.filter_spot_market(min_price_symbol))
+    schedule.every().day.at("00:00").do(coinex.filter_spot_market(min_price_symbol))
 
 while True:
   schedule.run_pending()
