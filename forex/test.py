@@ -1,7 +1,7 @@
 #from datetime import datetime
 #import matplotlib.pyplot as plt
 #import pandas as pd
-#import sqlite3
+import sqlite3
 import json
 #from pandas.plotting import register_matplotlib_converters
 #register_matplotlib_converters()
@@ -24,15 +24,12 @@ try :
 except Exception as e:
     print(f"Error: {e}")
 
-#conn = sqlite3.connect(db_name)
-forx= MT5_Class.MT5_API(username,password,exchange_server)
+conn = sqlite3.connect(db_name)
+forx= MT5_Class.MT5_API(username,password,exchange_server,conn)
 forx.initialize()
-#x= forx.calculate_cumret_symbols(interval,num_candles)
-x=forx.symbol_Candidates(interval, higher_interval, num_candles)
-print(x)
-#print(forx.calculate_cumret_symbols(1,100))
-
-
+forx.make_portfo(5,interval, higher_interval, num_candles, lot=0.01, stop_loss=25, take_profit=50, deviation =20 )
+while True:
+    forx.check_portfo(stop_loss=25, take_profit=50 )
 forx.shutdown()
 
 

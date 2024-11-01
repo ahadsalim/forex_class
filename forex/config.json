@@ -8,5 +8,5 @@
     "db_name" : "forex/forex.db" ,
     "interval" : 1 ,
     "sleep_check" : 450 ,
-    "higher_interval" : 30
+    "higher_interval" : 5
 }

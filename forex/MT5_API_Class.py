@@ -13,24 +13,6 @@ class MT5_API(object):
         return "This class use to work with MetaTrader 5"
     
     def __init__(self, username, password, exchange_server, connection=None):
-        """
-        Initialize the MT5_API class with the given parameters.
-
-        Parameters
-        ----------
-        username : str
-            The username for the MT5 account.
-        password : str
-            The password for the MT5 account.
-        exchange_server : str
-            The server to connect to for trading.
-        connection : sqlite3.Connection, optional
-            The SQLite database connection to store portfolio information. If not provided, a new connection will be created.
-
-        Returns
-        -------
-        None
-        """
         self.username = username
         self.password = password
         self.server = exchange_server
@@ -41,8 +23,6 @@ class MT5_API(object):
         if not mt5.initialize(login=self.username, password=self.password, server=self.server):
             print("initialize() failed, error code =", mt5.last_error())
             quit()
-        #print(mt5.terminal_info())
-        #print(mt5.version())
     
     def shutdown(self):
         mt5.shutdown()
@@ -136,34 +116,12 @@ class MT5_API(object):
             
 # ****************** Portolio Management ******************
     def symbol_Candidates(self,interval, higher_interval , HMP_candles):
-        """
-        Find symbols with a strong buy signal on both the given interval and the higher interval.
-        
-        Parameters
-        ----------
-        interval : str
-            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'.
-        higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval.
-        HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval.
-        
-        Returns
-        -------
-        pd.DataFrame or str
-            A DataFrame with the selected symbols, sorted by cumulative return in descending order. If no symbols are found, returns
-            'empty'.
-        """
-
         symbols_df = self.get_TA_symbols(interval, HMP_candles)
         filterd_df = pd.DataFrame(columns=symbols_df.columns)
         filterd_df = pd.concat([symbols_df.iloc[:3], symbols_df.iloc[-3:]], ignore_index=True)
-        
         higher_symbols_df = self.get_TA_symbols(higher_interval, HMP_candles)
         filterd_df2 = pd.DataFrame(columns=higher_symbols_df.columns)
         filterd_df2 = pd.concat([higher_symbols_df.iloc[:3], higher_symbols_df.iloc[-3:]], ignore_index=True)
-
         shared_tickers_df = pd.merge(filterd_df, filterd_df2, on='Symbol', how='inner')
         if len(shared_tickers_df) == 0 :
             return shared_tickers_df
@@ -171,33 +129,8 @@ class MT5_API(object):
             shared_tickers_df.drop(columns=['Time_y', 'Category_y', 'Close_y', 'Time_y','Volume_y', 'Spread_y','Limit_y','mean_lengh_y'], inplace=True)
             return shared_tickers_df
 
-    def make_portfo(self ,num_symbols ,cash , percent_of_each_symbol , interval, higher_interval , HMP_candles) :
-        """
-        Make a portfolio of num_symbols symbols with the given cash and percent of each symbol, and store them in the DB.
-        
-        Parameters
-        ----------
-        num_symbols : int
-            The number of symbols to include in the portfolio.
-        cash : float (by USD)
-            The maximum amount of cash to use for the portfolio.
-        percent_of_each_symbol : float
-            The percentage of the total cash to use for each symbol.
-        interval : str
-            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'.
-        higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval.
-        HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval.
-        client_id : str
-            The client_id to use for SPOT Order in the portfolio.
-        
-        Returns
-        -------
-        None
-        """
-        self.sync_db() # sync DB with your account
+    def make_portfo(self ,num_symbols ,interval, higher_interval , HMP_candles , lot=0.01 , stop_loss=25, take_profit=50, deviation =20 ) :
+        #self.sync_db() # sync DB with your account
         cursor = self.conn_db.cursor()
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
         result = cursor.fetchone()
@@ -207,7 +140,6 @@ class MT5_API(object):
             num= result[0]
         while num < num_symbols :
             symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
-            max_pay_symbol = cash * percent_of_each_symbol  # maximum pay for each symbol
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
                     # Checking that symbols are not duplicated
@@ -217,16 +149,29 @@ class MT5_API(object):
                         r = cursor.fetchall()
                         for tuple_item in r :
                             for symb in tuple_item:
-                                if row['symbol'] == symb:
-                                    print ("The symbol is repeated : ",row['symbol'])
+                                if row['Symbol'] == symb:
+                                    print ("The symbol is repeated : ",row['Symbol'])
                                     not_duplicate = False
                     if not_duplicate and num < num_symbols:
-                        stat = self.put_order(symbol=row['symbol'], order_type="buy", stop_loss=50 , take_profit=50 , lot=0.01 , deviation=20)
+                        if row['Cum_Return_x'] >1 and row['Cum_Return_y'] > 1 : ###########check tradingview status ?!!!
+                            o_t = "buy"
+                        elif row['Cum_Return_x'] <1 and row['Cum_Return_y'] < 1 :
+                            o_t = "sell"
+                        else :
+                            continue
+                        print(row['Symbol'], row['Cum_Return_x'], row['Cum_Return_y'])#################
+                        if row['Category_x'] != "Forex" :
+                            lot = round(lot, 1)
+                            lot = max(lot, 0.1)
+
+                        print("-"*60)
+                        stat,res = self.put_order(symbol=row['Symbol'], order_type=o_t, lot= lot , stop_loss=stop_loss , take_profit=take_profit , deviation=deviation)
+                        print(res)
                         if stat ==  'done' : # if order is placed & executed
                             num += 1
-                            query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                            query = "INSERT INTO portfo VALUES (?,?,?,?,?,?,?)"
                             try:
-                                cursor.execute(query,(res['amount'],res["base_fee"],res['ccy'],res['client_id'],res['created_at'],res['discount_fee'],res['filled_amount'],res['filled_value'],res['last_fill_amount'],res['last_fill_price'],res['maker_fee_rate'],res['market'],res['market_type'],res['order_id'],res['price'],res['quote_fee'],res['side'],res['taker_fee_rate'],res['type'],res['unfilled_amount'],res['updated_at'],res['last_fill_price']))
+                                cursor.execute(query,(res.order,res.volume,res.price,row['Symbol'],res.request.sl,res.request.tp,o_t))
                             except sqlite3.Error as e:
                                 print("-"*60)
                                 print ("Error in adding symbol to portfo in DB ! Do it manually !" , e)
@@ -234,32 +179,17 @@ class MT5_API(object):
                                 self.conn_db.rollback()  # Rollback changes in case of an error
                             else:
                                 self.conn_db.commit()  # Commit changes to the database
-                                print ("{} added to portfo in DB".format(row["symbol"]))
+                                print ("{} added to portfo in DB".format(row["Symbol"]))
                         else :
                             print("-"*60)
-                            print("Error in placing order : ",stat,row['symbol'],res)
+                            print("Error in placing order : ",stat,row['Symbol'])
                             print("-"*60)
             else :
                 print("No symbols found")
         print("The portfolio is complete !")
         
-    def check_portfo(self , loss_limit, client_id):
-        """
-        Check if the portfolio table exists and if symbols in it have reached either the loss limit or a 10% profit.
-        If a symbol has reached the loss limit, sell it and delete it from the portfolio table.
-        If a symbol has reached a 10% profit, update its price in the portfolio table. 
-
-        Parameters
-        ----------
-        loss_limit : float
-            The percentage of the original price at which to sell a symbol if it has fallen below it.
-
-        Returns
-        -------
-        bool
-            True if the portfolio table exists and has been checked, False otherwise.
-        """
-        self.sync_db(client_id) # sync DB with your account
+    def check_portfo(self,stop_loss,take_profit):
+        #self.sync_db() # sync DB with your account
         cursor = self.conn_db.cursor()
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
         result = cursor.fetchone()
@@ -270,46 +200,40 @@ class MT5_API(object):
             query = "SELECT * FROM portfo"  
             portfo = pd.read_sql_query(query, self.conn_db)
             for index, row in portfo.iterrows():
-                buy_price = float(row["last_fill_price"])
-                new_price = float(row["new_price"])
-                price_now=float(self.get_spot_price_ticker(row["market"])[0]["last"])
-                ind= max(buy_price , new_price) * loss_limit # Calculate Loss limit price 
-                if price_now <= ind :
-                    # if price in under loss limit, sell it
-                    stat ,res= self.put_spot_order(ticker=row['market'],side= "sell", order_type="market", amount= float(row["filled_amount"]))
-                    if (stat == "done") :
-                        query = "DELETE FROM portfo WHERE market = ?"
-                        try:
-                            cursor.execute(query, (row['market'],)) 
-                        except sqlite3.Error as e:
-                            print("-"*60)
-                            print ("Error in deleting {} from prtfolio! But sell it. Check your DB to ensue this symbol is deleted".format(row["market"]),e)
-                            print("-"*60)
-                            self.conn_db.rollback()  # Rollback changes in case of an error
-                        else:
-                            print ("{} Sell & Deleted from prtfolio successfully !".format(row["market"]))
-                            self.conn_db.commit()  # Commit changes to the database
-                    else :
-                        print("-"*60)
-                        print("Error in placing order",stat,row['market'],res)
-                        print("-"*60)
+                buy_price = float(row["price"])
+                point = mt5.symbol_info(row['symbol']).point
+                if row['order'] == "buy":
+                    now_price = mt5.symbol_info_tick(row['symbol']).bid
+                    s_l = now_price - stop_loss * point
+                    t_p = max(now_price + take_profit * point,row["tp"])
+                elif row['order'] == "sell":
+                    now_price = mt5.symbol_info_tick(row['symbol']).ask
+                    s_l = now_price + stop_loss * point
+                    t_p = min(now_price - take_profit * point , row["sl"])
+                
+                if now_price >= buy_price and row['order'] == "buy" :
+                    stat ,res= self.modify_order(order_id=row['order_id'] ,symbol=row['Symbol'] ,order_type=row['order'],stop_loss=s_l,take_profit=t_p)
+                elif now_price <= buy_price and row['order'] == "sell" :
+                    stat ,res= self.modify_order(order_id=row['order_id'] ,symbol=row['Symbol'] ,order_type=row['order'],stop_loss=s_l,take_profit=t_p)
                 else :
-                    if price_now > new_price : # Take profit , update price to take profit
-                        query = "UPDATE portfo SET new_price =? WHERE market= ?"
-                        try:
-                            cursor.execute(query, (price_now , row["market"]))
-                        except sqlite3.Error as e:
-                            print("-"*60)
-                            print("Error in updating {} price !".format(row["market"]) , e)
-                            print("-"*60)
-                            self.conn_db.rollback()  # Rollback changes in case of an error
-                        else:
-                            print ("The new price of {} has now been replaced !".format(row["market"]))
-                            self.conn_db.commit()  # Commit changes to the database
-                    else :
-                        print("The current price of {} is equal to the purchase price or less than {} of the purchase price.".format(row["market"],loss_limit))
+                    continue # do nothing !
+                if (stat == "done") :
+                    query = "UPDATE portfo SET sl=? , tp=? VALUE () WHERE order_id = ?"
+                    try:
+                        cursor.execute(query, (s_l,t_p,row['order_id'],)) 
+                    except sqlite3.Error as e:
+                        print("-"*60)
+                        print ("Error in updating order {} from prtfolio!".format(row["symbol"]),e)
+                        print("-"*60)
+                    else:
+                        print ("{} updated ! ".format(row["symbol"]))
+                        self.conn_db.commit()  # Commit changes to the database
+                else :
+                    print("-"*60)
+                    print("Error in placing order",stat,row['symbol'],res)
+                    print("-"*60)
                     
-    def sync_db(self,client_id) : # sync DB with your account
+    def sync_db(self) : # sync DB with your account
         output = self.get_spot_balance()
         balance_df = pd.json_normalize(output)
         balance_df = balance_df.drop(balance_df[balance_df['ccy'] == "USDT"].index)
@@ -354,7 +278,7 @@ class MT5_API(object):
                 query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 try:
                     now = str(int(time.time() * 1000))
-                    cursor.execute(query, (float(row["available"])*float(data["last"]),0,row['symbol'][:-4], client_id, now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
+                    cursor.execute(query, (float(row["available"])*float(data["last"]),0,row['symbol'][:-4], now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
                 except sqlite3.Error as e:
                     print("-"*60)
                     print ("Error in adding symbol to prtfo in DB ! Do it manually !" , e)
@@ -365,31 +289,7 @@ class MT5_API(object):
                     print ("{} added to portfo in DB".format(row["symbol"]))
         # Update amount of symbols in portfo DB for when sell some of it manualy !
     
-    def put_order(self, symbol: str, order_type: str, stop_loss: int, take_profit: int, lot=0.01, deviation=20 ):
-        """
-        Places an order for a given symbol with specified parameters.
-
-        Parameters
-        ----------
-        symbol : str
-            The trading symbol for which the order is to be placed.
-        order_type : str
-            The type of order to be placed. Can be 'buy', 'sell', 'buy_limit', 'sell_limit', 'buy_stop', 'sell_stop', 
-            'buy_stop_limit', 'sell_stop_limit', or 'close'.
-        stop_loss : int
-            The stop loss value in points.
-        take_profit : int
-            The take profit value in points.
-        lot : float, optional
-            The volume of the order in lots. Default is 0.01.
-        deviation : int, optional
-            The maximum price deviation in points. Default is 20.
-
-        Returns
-        -------
-        str
-            Returns "done" if the order is successfully placed and executed, otherwise returns "failed".
-        """
+    def put_order(self, symbol: str, order_type: str, lot: float , stop_loss: int, take_profit: int, deviation : int ):
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
             print(symbol, "not found, can not call order_check()")
@@ -403,42 +303,47 @@ class MT5_API(object):
 
         point = mt5.symbol_info(symbol).point
         price = mt5.symbol_info_tick(symbol).ask
+        print(order_type,lot)############################
         if order_type == "buy":
-            order_type = mt5.ORDER_TYPE_BUY
+            o_t = mt5.ORDER_TYPE_BUY
+            s_l = price - stop_loss * point
+            t_p = price + take_profit * point
         elif order_type == "sell":
-            order_type = mt5.ORDER_TYPE_SELL
+            o_t = mt5.ORDER_TYPE_SELL
+            s_l = price + stop_loss * point
+            t_p = price - take_profit * point
         elif order_type == "buy_limit":
-            order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            o_t = mt5.ORDER_TYPE_BUY_LIMIT
         elif order_type == "sell_limit":
-            order_type = mt5.ORDER_TYPE_SELL_LIMIT
+            o_t = mt5.ORDER_TYPE_SELL_LIMIT
         elif order_type == "buy_stop":
-            order_type = mt5.ORDER_TYPE_BUY_STOP
+            o_t = mt5.ORDER_TYPE_BUY_STOP
         elif order_type == "sell_stop":
-            order_type = mt5.ORDER_TYPE_SELL_STOP
+            o_t = mt5.ORDER_TYPE_SELL_STOP
         elif order_type == "buy_stop_limit":
-            order_type = mt5.ORDER_TYPE_BUY_STOP_LIMIT
+            o_t = mt5.ORDER_TYPE_BUY_STOP_LIMIT
         elif order_type == "sell_stop_limit":
-            order_type = mt5.ORDER_TYPE_SELL_STOP_LIMIT
+            o_t = mt5.ORDER_TYPE_SELL_STOP_LIMIT
         elif order_type == "close":
-            order_type = mt5.ORDER_TYPE_CLOSE_BY 
+            o_t = mt5.ORDER_TYPE_CLOSE_BY 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "volume": lot,
-            "type": order_type,
+            "type": o_t,
             "price": price,
-            "sl": price - stop_loss * point,
-            "tp": price + take_profit * point,
+            "sl": s_l,
+            "tp": t_p,
             "deviation": deviation,
             "magic": 4919,
             "comment": "python script open",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_RETURN,
+            "type_filling": mt5.ORDER_FILLING_FOK,
         }
         result = mt5.order_send(request)
-        print("1. order_send(): by {} {} lots at {} with deviation={} points".format(symbol, lot, price, deviation))
+        print("1. Order send : {} {} {} lots at {} with deviation={} points".format(order_type,symbol, lot, price, deviation))
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            print("2. order_send failed, retcode={}".format(result.retcode))
+            print("2. Order send failed, retcode={}".format(result.retcode))
             result_dict = result._asdict()
             for field in result_dict.keys():
                 print("   {}={}".format(field, result_dict[field]))
@@ -446,15 +351,48 @@ class MT5_API(object):
                     traderequest_dict = result_dict[field]._asdict()
                     for tradereq_filed in traderequest_dict:
                         print("       traderequest: {}={}".format(tradereq_filed, traderequest_dict[tradereq_filed]))
-            print("shutdown() and quit")
-            return "failed"
+            return "failed" , result
 
-        print("2. order_send done, ", result)
-        print("   opened position with POSITION_TICKET={}".format(result.order))
-        print("   sleep 2 seconds before closing position #{}".format(result.order))
-        return "done"
+        print("2. Order send Done, opened position with POSITION_TICKET={}".format(result.order))
+        return "done", result
 
+    def modify_order (self, order_id : int, symbol: str, order_type: str, stop_loss: int, take_profit: int ):
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            print(symbol, "not found, can not call order_check()")
+            return None
 
+        if not symbol_info.visible:
+            print(symbol, "is not visible, trying to switch on")
+            if not mt5.symbol_select(symbol, True):
+                print("symbol_select({}}) failed, exit", symbol)
+                return None
+
+        request = {
+            "action": mt5.TRADE_ACTION_MODIFY,
+            "position": order_id,
+            "symbol": symbol,
+            "sl": stop_loss,
+            "tp": take_profit,
+            "comment": "python script Modified order",
+        }
+        result = mt5.order_send(request)
+        print("1. Send Modifing Order {} for {} ".format(order_id,symbol))
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            print("2. Order send failed, retcode={}".format(result.retcode))
+            result_dict = result._asdict()
+            for field in result_dict.keys():
+                print("   {}={}".format(field, result_dict[field]))
+                if field == "request":
+                    traderequest_dict = result_dict[field]._asdict()
+                    for tradereq_filed in traderequest_dict:
+                        print("       traderequest: {}={}".format(tradereq_filed, traderequest_dict[tradereq_filed]))
+            return "failed" , result
+
+        print("2. Order Modified, Stop Loss and Take Profit updated. POSITION_TICKET={}".format(result.order))
+        return "done", result
+        
+        
     def get_spot_history(self, type_h= "trade", start_time=None, ccy=None , limit=90 , page = None):
         cursor = self.conn_db.cursor()
         cursor.execute("SELECT ltime FROM transactions ORDER BY ltime DESC LIMIT 1")
@@ -519,28 +457,6 @@ class MT5_API(object):
         print(df2)
         return df2
         '''
-
-    def modify_order (self,ticker,order_id,amount=None,price=None) :
-        
-        request_path = "/spot/modify-order"
-        data = {
-            "market": ticker,
-            "market_type": "SPOT",
-            "order_id": order_id,
-            "amount": amount,
-            "price": price,
-        }
-        data = json.dumps(data)
-        response = self.request(
-            "POST",
-            "{url}{request_path}".format(url=self.url, request_path=request_path),
-            data=data,
-        )
-        res= response.json()
-        if res["code"]==0 :
-            return res["data"]
-        else :
-            raise ValueError(res["message"])
 
     def order_Status_Query(self,ticker,order_id):
         request_path = "/spot/order-status"
