@@ -23,6 +23,6 @@ conn = sqlite3.connect(db_name)
 
 coinex = Coinex.Coinex_API(api_key, api_secret, connection=conn , client_id=client_id)
 while True :
-    coinex.check_portfo(loss_limit=loss_limit,client_id=client_id, interval=interval , take_profit=take_profit)
+    coinex.check_portfo(loss_limit=loss_limit,take_profit=take_profit ,client_id=client_id, interval=interval , take_profit=take_profit)
     time.sleep(sleep_check)
 conn.close()
