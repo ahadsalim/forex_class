@@ -2,7 +2,9 @@
 import json
 import sqlite3
 import Coinex_API_Class as Coinex
-    
+import schedule
+import time
+
 try :
     with open('crypto/config.json', 'r') as f:
         data = json.load(f)
@@ -17,10 +19,8 @@ except Exception as e:
 
 with sqlite3.connect(db_name) as conn:
     coinex = Coinex.Coinex_API(api_key, api_secret, conn)
-    ret = coinex.filter_spot_market(min_price_symbol)
-    if  ret == True:
-        # Notify me this is updated !
-        print("The symbol table in the database has been successfully updated.")
-    else :
-        # Notify me the error !!!!
-        print(ret)
+    schedule.every(6).hours.do(coinex.filter_spot_market(min_price_symbol))
+
+while True:
+  schedule.run_pending()
+  time.sleep(60)

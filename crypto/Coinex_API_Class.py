@@ -4,7 +4,6 @@ import hmac
 import hashlib
 import sqlite3
 import requests
-import concurrent.futures
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
@@ -127,6 +126,7 @@ class Coinex_API(object):
         try :
             # Save the DataFrame to the DB
             df.to_sql('symbols', con=self.conn_db , if_exists='replace', index=False)
+            print("Data stored successfully")
             return True
         except Exception as e:
             print("Can't store data !!!" , e)
@@ -184,54 +184,7 @@ class Coinex_API(object):
                 print(e)
                 continue
         return df
-    '''
-    def async_calculate_cumret_tickers(self, period: str, limit: int) : # calculate the cumulative return of all tickers in DB
-        query = "SELECT * FROM symbols"
-        markets = pd.read_sql_query(query, self.conn_db)
-
-        df = pd.DataFrame(columns=['Time', "symbol", "min_amount", "maker_fee_rate", "taker_fee_rate",
-                                   'Close', 'Return', 'Cum_Return', 'Volume', 'Value', 'Cum_Value', 'period', 'limit'])
-        desc = "Get info From CoinEx < " + period + " > "
-        
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=60)
-        futures = []
-
-        for index, symbol in tqdm(markets.iterrows(), total=len(markets), desc=desc):
-            ticker = symbol['market']
-            future = executor.submit(self.get_spot_kline, ticker, period, limit)
-            futures.append(future)
-            # اضافه کردن تاخیر برای رعایت محدودیت نرخ درخواست
-            time.sleep(1 / 60)
-
-
-        for future in futures:
-            try:
-                data = future.result()
-                info = {"Time": [data["Time"]], "symbol": [ticker], "min_amount": [symbol["min_amount"]],
-                    "maker_fee_rate": [symbol["maker_fee_rate"]], "taker_fee_rate": [symbol["taker_fee_rate"]],
-                    "Close": [data['Close']], "Return": [data['Return']], "Cum_Return": [data["Cum_Return"]],
-                    "Volume": [data['Volume']], "Value": [data["Value"]], "Cum_Value": [data['Cum_Value']],
-                    "period": [period], "limit": [limit]}
-                info = pd.DataFrame(info)
-            
-                if df.empty:
-                    df = info.copy()
-                else:
-                    df = pd.concat([df, info], ignore_index=True)
-            except Exception as e:
-                print(e)
-                continue
-        print(df)
-        return df
-
-            
-        for index,symbol in enumerate(markets):
-            data = self.get_spot_kline(symbol, period, limit)
-            print(data)
-            
-            
-        return df
-    '''
+    
     def get_ta_tickers (self,period,limit) : # Get Technical Analysis of all tickers in DB from        
         data_spot = self.calculate_cumret_tickers(period,limit)
         data_spot['Recomandation'] = None
@@ -269,28 +222,8 @@ class Coinex_API(object):
                 continue
         return data_spot
     
-# ****************** Portolio Management ******************
+# ************************************************** Portolio Management ******************
     def symbol_Candidates(self,interval, higher_interval , HMP_candles):
-        """
-        Find symbols with a strong buy signal on both the given interval and the higher interval.
-        
-        Parameters
-        ----------
-        interval : str
-            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'.
-        higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval.
-        HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval.
-        
-        Returns
-        -------
-        pd.DataFrame or str
-            A DataFrame with the selected symbols, sorted by cumulative return in descending order. If no symbols are found, returns
-            'empty'.
-        """
-
         tickers_df = self.get_ta_tickers(interval, HMP_candles)
         tickers_df2 = tickers_df[(tickers_df['Recomandation'] == "STRONG_BUY")]
         higher_tickers_df = self.get_ta_tickers(higher_interval, HMP_candles)
@@ -306,31 +239,6 @@ class Coinex_API(object):
             return top_symbols
 
     def make_portfo(self ,num_symbols ,cash , percent_of_each_symbol , interval, higher_interval , HMP_candles , client_id) :
-        """
-        Make a portfolio of num_symbols symbols with the given cash and percent of each symbol, and store them in the DB.
-        
-        Parameters
-        ----------
-        num_symbols : int
-            The number of symbols to include in the portfolio.
-        cash : float (by USD)
-            The maximum amount of cash to use for the portfolio.
-        percent_of_each_symbol : float
-            The percentage of the total cash to use for each symbol.
-        interval : str
-            The interval on which to select symbols. Can be '1min', '5min', '15min', '30min', '1hour', '2hour', '4hour', '1day', 
-            '1week'.
-        higher_interval : str
-            The higher interval on which to select symbols. Must be higher than the given interval.
-        HMP_candles : int
-            How many previous candles? The number of candles for the given interval and the higher interval.
-        client_id : str
-            The client_id to use for SPOT Order in the portfolio.
-        
-        Returns
-        -------
-        None
-        """
         self.sync_db(client_id) # sync DB with your account
         cursor = self.conn_db.cursor()
         cursor.execute(f"SELECT COUNT(*) FROM portfo")
