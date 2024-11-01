@@ -8,6 +8,6 @@
     "db_name" : "crypto/crypto.db" ,
     "client_id" : "Ahad1360" ,
     "interval" : "15min" ,
-    "sleep_check" : 450 ,
+    "sleep_check" : 240 ,
     "higher_interval" : "2hour"
 }
