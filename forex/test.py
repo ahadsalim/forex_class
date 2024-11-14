@@ -27,9 +27,9 @@ except Exception as e:
 conn = sqlite3.connect(db_name)
 forx= MT5_Class.MT5_API(username,password,exchange_server,conn)
 forx.initialize()
-forx.make_portfo(5,interval, higher_interval, num_candles, lot=0.01, stop_loss=25, take_profit=50, deviation =20 )
+forx.make_portfo(5,interval, higher_interval, num_candles, lot=0.01, stop_loss=100, take_profit=200, deviation =5 )
 while True:
-    forx.check_portfo(stop_loss=25, take_profit=50 )
+   forx.check_portfo(5,interval, higher_interval, num_candles, lot=0.01, stop_loss=100, take_profit=200, deviation =5 )
 forx.shutdown()
 
 

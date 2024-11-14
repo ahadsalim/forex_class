@@ -130,165 +130,81 @@ class MT5_API(object):
             return shared_tickers_df
 
     def make_portfo(self ,num_symbols ,interval, higher_interval , HMP_candles , lot=0.01 , stop_loss=25, take_profit=50, deviation =20 ) :
-        #self.sync_db() # sync DB with your account
-        cursor = self.conn_db.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM portfo")
-        result = cursor.fetchone()
-        if result is None:
-            num = 0
+        pos_total=mt5.positions_total()
+        if pos_total > 0 :
+            print("Total open positions=",pos_total)
         else:
-            num= result[0]
-        while num < num_symbols :
+            print("The portfo is empty !")
+        
+        while pos_total < num_symbols :
             symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
                     # Checking that symbols are not duplicated
-                    not_duplicate = True
-                    if num != 0 :
-                        cursor.execute("SELECT symbol FROM portfo")
-                        r = cursor.fetchall()
-                        for tuple_item in r :
-                            for symb in tuple_item:
-                                if row['Symbol'] == symb:
-                                    print ("The symbol is repeated : ",row['Symbol'])
-                                    not_duplicate = False
-                    if not_duplicate and num < num_symbols:
-                        if row['Cum_Return_x'] >1 and row['Cum_Return_y'] > 1 : ###########check tradingview status ?!!!
-                            o_t = "buy"
-                        elif row['Cum_Return_x'] <1 and row['Cum_Return_y'] < 1 :
-                            o_t = "sell"
-                        else :
-                            continue
-                        print(row['Symbol'], row['Cum_Return_x'], row['Cum_Return_y'])#################
-                        if row['Category_x'] != "Forex" :
-                            lot = round(lot, 1)
-                            lot = max(lot, 0.1)
+                    positions=mt5.positions_get(symbol=row['Symbol'])
+                    if positions == () :
+                        print("No positions on {} , Let's trade it.".format(row['Symbol']))
+                        if pos_total < num_symbols:
+                            if row['Cum_Return_x'] >1 and row['Cum_Return_y'] > 1 : ###########check tradingview status ?!!!
+                                o_t = "buy"
+                            elif row['Cum_Return_x'] <1 and row['Cum_Return_y'] < 1 :
+                                o_t = "sell"
+                            else :
+                                continue
+                            if row['Category_x'] != "Forex" :
+                                lot = round(lot, 1)
+                                lot = max(lot, 0.1)
 
-                        print("-"*60)
-                        stat,res = self.put_order(symbol=row['Symbol'], order_type=o_t, lot= lot , stop_loss=stop_loss , take_profit=take_profit , deviation=deviation)
-                        print(res)
-                        if stat ==  'done' : # if order is placed & executed
-                            num += 1
-                            query = "INSERT INTO portfo VALUES (?,?,?,?,?,?,?)"
-                            try:
-                                cursor.execute(query,(res.order,res.volume,res.price,row['Symbol'],res.request.sl,res.request.tp,o_t))
-                            except sqlite3.Error as e:
-                                print("-"*60)
-                                print ("Error in adding symbol to portfo in DB ! Do it manually !" , e)
-                                print("-"*60)
-                                self.conn_db.rollback()  # Rollback changes in case of an error
-                            else:
-                                self.conn_db.commit()  # Commit changes to the database
-                                print ("{} added to portfo in DB".format(row["Symbol"]))
-                        else :
                             print("-"*60)
-                            print("Error in placing order : ",stat,row['Symbol'])
-                            print("-"*60)
+                            stat,res = self.put_order(symbol=row['Symbol'], order_type=o_t, lot= lot , stop_loss=stop_loss , take_profit=take_profit , deviation=deviation)
+                            print(res)
+                            if stat ==  'done' : # if order is placed & executed
+                                pos_total += 1
+                            else :
+                                print("-"*60)
+                                print("Error in placing order : ",stat,row['Symbol'])
+                                print("-"*60)
+
+                    elif len(positions)>0:
+                        print("The symbol is repeated : ",row['Symbol'])
             else :
                 print("No symbols found")
         print("The portfolio is complete !")
         
-    def check_portfo(self,stop_loss,take_profit):
-        #self.sync_db() # sync DB with your account
-        cursor = self.conn_db.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM portfo")
-        result = cursor.fetchone()
-        if result is None:
-            print("The portfo is empty.")
-            return False
+    def check_portfo(self,num_symbols ,interval, higher_interval , HMP_candles , lot=0.01 , stop_loss=25, take_profit=50, deviation =2):
+        portfo = mt5.positions_get()
+        if portfo ==() :
+            print("The portfo is empty !")
+            num =0
         else:
-            query = "SELECT * FROM portfo"  
-            portfo = pd.read_sql_query(query, self.conn_db)
-            for index, row in portfo.iterrows():
-                buy_price = float(row["price"])
+            portfo_df=pd.DataFrame(list(portfo),columns=portfo[0]._asdict().keys())
+            portfo_df.drop(['time_msc','time_update','time_update_msc','reason','comment','external_id'], axis=1, inplace=True)
+            num=len(portfo_df)
+            for index, row in portfo_df.iterrows():
                 point = mt5.symbol_info(row['symbol']).point
-                if row['order'] == "buy":
-                    now_price = mt5.symbol_info_tick(row['symbol']).bid
-                    s_l = now_price - stop_loss * point
-                    t_p = max(now_price + take_profit * point,row["tp"])
-                elif row['order'] == "sell":
-                    now_price = mt5.symbol_info_tick(row['symbol']).ask
-                    s_l = now_price + stop_loss * point
-                    t_p = min(now_price - take_profit * point , row["sl"])
-                
-                if now_price >= buy_price and row['order'] == "buy" :
-                    stat ,res= self.modify_order(order_id=row['order_id'] ,symbol=row['Symbol'] ,order_type=row['order'],stop_loss=s_l,take_profit=t_p)
-                elif now_price <= buy_price and row['order'] == "sell" :
-                    stat ,res= self.modify_order(order_id=row['order_id'] ,symbol=row['Symbol'] ,order_type=row['order'],stop_loss=s_l,take_profit=t_p)
+                change=False
+                if row['type'] == "0" and row['price_current'] > row['price_open']:  # update sl & tp on buy order
+                    s_l = row['price_current'] - stop_loss * point
+                    t_p = row['price_current'] + take_profit * point
+                    change=True
+                elif row['type'] == "1" and row['price_current'] < row['price_open']: # update sl & tp on sell order
+                    s_l = row['price_current'] + stop_loss * point
+                    t_p = row['price_current'] - take_profit * point
+                    change=True
+                #*********** check type !!!!
+                if change :
+                    stat ,res= self.modify_order(order_id=row['ticket'] ,symbol=row['symbol'] ,order_type=row['type'],stop_loss=s_l,take_profit=t_p)
                 else :
                     continue # do nothing !
                 if (stat == "done") :
-                    query = "UPDATE portfo SET sl=? , tp=? VALUE () WHERE order_id = ?"
-                    try:
-                        cursor.execute(query, (s_l,t_p,row['order_id'],)) 
-                    except sqlite3.Error as e:
-                        print("-"*60)
-                        print ("Error in updating order {} from prtfolio!".format(row["symbol"]),e)
-                        print("-"*60)
-                    else:
-                        print ("{} updated ! ".format(row["symbol"]))
-                        self.conn_db.commit()  # Commit changes to the database
+                    print ("{} updated ! ".format(row["symbol"]))
                 else :
                     print("-"*60)
                     print("Error in placing order",stat,row['symbol'],res)
                     print("-"*60)
+        if num < num_symbols :
+            self.make_portfo(num_symbols=num_symbols,interval=interval,higher_interval=higher_interval,HMP_candles=HMP_candles,lot=lot,stop_loss=stop_loss,take_profit=take_profit,deviation=deviation)
                     
-    def sync_db(self) : # sync DB with your account
-        output = self.get_spot_balance()
-        balance_df = pd.json_normalize(output)
-        balance_df = balance_df.drop(balance_df[balance_df['ccy'] == "USDT"].index)
-        balance_df['symbol'] = balance_df['ccy'].astype(str) + "USDT"
-        cursor = self.conn_db.cursor()
-        query = "SELECT * FROM portfo"  
-        portfo_df = pd.read_sql_query(query, self.conn_db)
-        # Removing symbols that no longer exist from potfo DB
-        for index, row in portfo_df.iterrows():
-            result = balance_df.loc[balance_df['symbol'] == row["market"]]
-            if  result.empty :
-                query = "DELETE FROM portfo WHERE market = ?"
-                try:
-                    cursor.execute(query, (row['market'],)) 
-                except sqlite3.Error as e:
-                    print("-"*60)
-                    print ("Error in deleting symbol {} from prtfo in DB ! Do it manually !".format(row['market']) , e)
-                    print("-"*60)
-                    self.conn_db.rollback()  # Rollback changes in case of an error
-                else:
-                    self.conn_db.commit()  # Commit changes to the database
-                    print ("{} deleted from portfo in DB".format(row["market"]))
-            else :
-                # Update amount of symbols in portfo DB for when sell some of it manualy !
-                query = "UPDATE portfo SET filled_amount = ? WHERE market= ?"
-                try:
-                    amount= balance_df[balance_df['symbol'] == row["market"]]['available']
-                    cursor.execute(query, (float(amount.iloc[0]),row['market'])) 
-                except sqlite3.Error as e:
-                    print("-"*60)
-                    print ("Error in updating {} amount in prtfo DB ! Do it manually !".format(row['market']) , e)
-                    print("-"*60)
-                    self.conn_db.rollback()  # Rollback changes in case of an error
-                else:
-                    self.conn_db.commit()  # Commit changes to the database
-                print("You own {} {} at {} per one".format(row["filled_amount"],row["market"][:-4],row['new_price']))
-        # Adding symbols that exist in portfo DB
-        for index, row in balance_df.iterrows():
-            result = portfo_df.loc[portfo_df['market'] == row["symbol"]]
-            if  result.empty :
-                data= self.get_spot_price_ticker(portfo_df['market'])[0]
-                query = "INSERT INTO portfo (amount,base_fee,ccy,client_id,created_at,discount_fee,filled_amount,filled_value,last_fill_amount,last_fill_price,maker_fee_rate,market,market_type,order_id,price,quote_fee,side,taker_fee_rate,type,unfilled_amount,updated_at,new_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                try:
-                    now = str(int(time.time() * 1000))
-                    cursor.execute(query, (float(row["available"])*float(data["last"]),0,row['symbol'][:-4], now, 0, row["available"] , "",row["available"],data["last"],0,row['symbol'] ,"SPOT" ,0 , "", "", "buy", 0.003,"market",0,now, data["last"]))
-                except sqlite3.Error as e:
-                    print("-"*60)
-                    print ("Error in adding symbol to prtfo in DB ! Do it manually !" , e)
-                    print("-"*60)
-                    self.conn_db.rollback()  # Rollback changes in case of an error
-                else:
-                    self.conn_db.commit()  # Commit changes to the database
-                    print ("{} added to portfo in DB".format(row["symbol"]))
-        # Update amount of symbols in portfo DB for when sell some of it manualy !
-    
     def put_order(self, symbol: str, order_type: str, lot: float , stop_loss: int, take_profit: int, deviation : int ):
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
@@ -302,16 +218,19 @@ class MT5_API(object):
                 return None
 
         point = mt5.symbol_info(symbol).point
-        price = mt5.symbol_info_tick(symbol).ask
-        print(order_type,lot)############################
+        price_a = mt5.symbol_info_tick(symbol).ask
+        price_b = mt5.symbol_info_tick(symbol).bid
+        print("point=",point , "ask=",price_a , "bid=", price_b)     ############################
         if order_type == "buy":
             o_t = mt5.ORDER_TYPE_BUY
-            s_l = price - stop_loss * point
-            t_p = price + take_profit * point
+            s_l = price_b - stop_loss * point
+            t_p = price_a + take_profit * point
+            price=price_a
         elif order_type == "sell":
             o_t = mt5.ORDER_TYPE_SELL
-            s_l = price + stop_loss * point
-            t_p = price - take_profit * point
+            s_l = price_a + stop_loss * point
+            t_p = price_b - take_profit * point
+            price=price_b
         elif order_type == "buy_limit":
             o_t = mt5.ORDER_TYPE_BUY_LIMIT
         elif order_type == "sell_limit":
