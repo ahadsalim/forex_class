@@ -24,6 +24,7 @@ if not symbol_info.visible:
  
 lot = 0.01
 point = mt5.symbol_info(symbol).point
+print(mt5.symbol_info(symbol))
 price_a = mt5.symbol_info_tick(symbol).ask
 price_b = mt5.symbol_info_tick(symbol).bid
 sl = price_b - 100 * point

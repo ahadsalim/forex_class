@@ -214,7 +214,9 @@ class MT5_API(object):
         point = mt5.symbol_info(symbol).point
         price_a = mt5.symbol_info_tick(symbol).ask
         price_b = mt5.symbol_info_tick(symbol).bid
-        print("point=",point , "ask=",price_a , "bid=", price_b)     ############################
+        min_sl_tp = mt5.symbol_info(symbol).trade_stops_level
+        stop_loss = max(stop_loss, min_sl_tp)
+        take_profit = max(take_profit, min_sl_tp)
         if order_type == "buy":
             o_t = mt5.ORDER_TYPE_BUY
             s_l = price_b - stop_loss * point
