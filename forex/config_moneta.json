@@ -1,0 +1,12 @@
+{
+    "username": 751428 ,
+    "password" : "Ah02^Ml^" ,
+    "exchange_server" : "MonetaMarkets-Demo" ,
+    "stop_loss" : 100 ,
+    "take_profit" : 200 ,
+    "num_candle" : 90 ,
+    "db_name" : "forex/forex.db" ,
+    "interval" : 1 ,
+    "sleep_check" : 15 ,
+    "higher_interval" : 5
+}

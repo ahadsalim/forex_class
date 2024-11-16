@@ -88,46 +88,61 @@ class MT5_API(object):
                 continue
         return df
     
-    def get_TA_symbols (self,period,limit) : # Get Technical Analysis of all symbols from TradingView        
+    def tech_analize_symbols (self, period, limit, category, method) : # Get Technical Analysis       
         if period == 1 or period == 5 or period == 15 or period == 30 or period == 16385 or period == 16386 or period == 16388 or period == 16408 or period == 32769 or period == 49153 :
             data_spot = self.calculate_cumret_symbols(period,limit)
-            data_spot['Recomandation'] = None
-            data_spot['Buy'] = None
-            data_spot['Sell'] = None
-            data_spot['Neutral'] = None
-            desc = "Get info From TradingView < " + self.priod_to_text(period) + " > "
-            for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc=desc , position=0):
-                symbol=row['Symbol']
-                if row['Category'] == 'Forex':
-                    try : 
-                        data= (TA_Handler(symbol=symbol, screener='forex', exchange="FX_IDC", interval=self.priod_to_text(period))).get_analysis().summary
-                        data_spot.loc[index, 'Recomandation'] =data['RECOMMENDATION']
-                        data_spot.loc[index, 'Buy'] = data['BUY']
-                        data_spot.loc[index, 'Sell'] = data['SELL']
-                        data_spot.loc[index, 'Neutral'] = data['NEUTRAL']
-                    except Exception as e:
-                        print("Error for symbol : " + symbol + " ",e)
-                        continue
+            if category is not None:
+                data_spot = data_spot[data_spot['Category']==category]
+            if method == "tradingiew":
+                data_spot['Recomandation'] = None
+                data_spot['Buy'] = None
+                data_spot['Sell'] = None
+                data_spot['Neutral'] = None
+                desc = "Get info From TradingView < " + self.priod_to_text(period) + " > "
+                for index, row in tqdm(data_spot.iterrows(), total=len(data_spot), desc=desc , position=0):
+                    symbol=row['Symbol']
+                    if row['Category'] == 'Forex' or row['Category'] == 'Forex Major':
+                        try : 
+                            data= (TA_Handler(symbol=symbol, screener='forex', exchange="FX_IDC", interval=self.priod_to_text(period))).get_analysis().summary
+                            data_spot.loc[index, 'Recomandation'] =data['RECOMMENDATION']
+                            data_spot.loc[index, 'Buy'] = data['BUY']
+                            data_spot.loc[index, 'Sell'] = data['SELL']
+                            data_spot.loc[index, 'Neutral'] = data['NEUTRAL']
+                        except Exception as e:
+                            print("Error for symbol : " + symbol + " ",e)
+                            continue
+            elif method == "custom":
+                # Add your custom code here  ******************************************
+                pass
             return data_spot.sort_values(by='Cum_Return', ascending=False)
         else :
-            print("This time frame is not supported in TradingView.")
+            print("This time frame is not supported in Metatrade !")
             
 # ****************** Portolio Management ******************
-    def symbol_Candidates(self,interval, higher_interval , HMP_candles):
-        symbols_df = self.get_TA_symbols(interval, HMP_candles)
+    def symbol_Candidates(self,interval, higher_interval , HMP_candles , category=None , method="tradingiew") :
+        symbols_df = self.tech_analize_symbols(interval, HMP_candles,category , method)
         filterd_df = pd.DataFrame(columns=symbols_df.columns)
-        filterd_df = pd.concat([symbols_df.iloc[:3], symbols_df.iloc[-3:]], ignore_index=True)
-        higher_symbols_df = self.get_TA_symbols(higher_interval, HMP_candles)
+        filterd_df = pd.concat([symbols_df.iloc[:7], symbols_df.iloc[-7:]], ignore_index=True)
+        
+        filterd_df.to_csv('candidates.csv',index=False)
+        
+        higher_symbols_df = self.tech_analize_symbols(higher_interval, HMP_candles, category, method)
         filterd_df2 = pd.DataFrame(columns=higher_symbols_df.columns)
-        filterd_df2 = pd.concat([higher_symbols_df.iloc[:3], higher_symbols_df.iloc[-3:]], ignore_index=True)
+        filterd_df2 = pd.concat([higher_symbols_df.iloc[:7], higher_symbols_df.iloc[-7:]], ignore_index=True)
+        
+        filterd_df2.to_csv('candidates2.csv',index=False)
+        
         shared_tickers_df = pd.merge(filterd_df, filterd_df2, on='Symbol', how='inner')
+
+        shared_tickers_df.to_csv('share.csv',index=False)
+
         if len(shared_tickers_df) == 0 :
             return shared_tickers_df
         else :
             shared_tickers_df.drop(columns=['Time_y', 'Category_y', 'Close_y', 'Time_y','Volume_y', 'Spread_y','Limit_y','mean_lengh_y'], inplace=True)
             return shared_tickers_df
 
-    def make_portfo(self ,num_symbols ,interval, higher_interval , HMP_candles , lot=0.01 , stop_loss=25, take_profit=50, deviation =20 ) :
+    def make_portfo(self ,num_symbols ,interval, higher_interval , HMP_candles ,category , method, lot=0.01 , stop_loss=25, take_profit=50, deviation =20 ) :
         pos_total=mt5.positions_total()
         if pos_total > 0 :
             print("Total open positions=",pos_total)
@@ -135,7 +150,7 @@ class MT5_API(object):
             print("The portfo is empty !")
         
         while pos_total < num_symbols :
-            symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles)
+            symb_df = self.symbol_Candidates(interval, higher_interval, HMP_candles, category, method)
             if len(symb_df) > 0 :            
                 for index, row in symb_df.iterrows():
                     # Checking that symbols are not duplicated
@@ -143,16 +158,12 @@ class MT5_API(object):
                     if positions == () :
                         print("No positions on {} , Let's trade it.".format(row['Symbol']))
                         if pos_total < num_symbols:
-                            if row['Cum_Return_x'] >1 and row['Cum_Return_y'] > 1 : ###########check tradingview status ?!!!
+                            if row['Cum_Return_x'] >1 and row['Cum_Return_y'] > 1 :
                                 o_t = "buy"
                             elif row['Cum_Return_x'] <1 and row['Cum_Return_y'] < 1 :
                                 o_t = "sell"
                             else :
                                 continue
-                            if row['Category_x'] != "Forex" :
-                                lot = round(lot, 1)
-                                lot = max(lot, 0.1)
-
                             print("-"*60)
                             stat,res = self.put_order(symbol=row['Symbol'], order_type=o_t, lot= lot , stop_loss=stop_loss , take_profit=take_profit , deviation=deviation)
                             print(res)
@@ -211,12 +222,18 @@ class MT5_API(object):
                 print("symbol_select({}}) failed, exit", symbol)
                 return None
 
-        point = mt5.symbol_info(symbol).point
         price_a = mt5.symbol_info_tick(symbol).ask
         price_b = mt5.symbol_info_tick(symbol).bid
-        min_sl_tp = mt5.symbol_info(symbol).trade_stops_level
+        info = mt5.symbol_info(symbol)
+        point = info.point
+        min_sl_tp = info.trade_stops_level
+        min_lot = info.volume_min
+        filling_mode = info.filling_mode-1 #to correct number !
+
         stop_loss = max(stop_loss, min_sl_tp)
         take_profit = max(take_profit, min_sl_tp)
+        if lot < min_lot:
+            lot= min_lot
         if order_type == "buy":
             o_t = mt5.ORDER_TYPE_BUY
             s_l = price_b - stop_loss * point
@@ -253,8 +270,9 @@ class MT5_API(object):
             "magic": 4919,
             "comment": "python script open",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_FOK,
+            "type_filling": filling_mode,
         }
+        #print(request)
         result = mt5.order_send(request)
         print("1. Order send : {} {} {} lots at {} with deviation={} points".format(order_type,symbol, lot, price, deviation))
         if result.retcode != mt5.TRADE_RETCODE_DONE:

@@ -3,7 +3,7 @@ import time
 import MT5_API_Class as MT5_Class
 
 try :
-    with open('forex/config.json', 'r') as f:
+    with open('forex/config_moneta.json', 'r') as f:
         data = json.load(f)
         username = data['username']
         password = data['password']
@@ -20,7 +20,7 @@ except Exception as e:
 forx= MT5_Class.MT5_API(username,password,exchange_server)
 forx.initialize()
 while True:
-    forx.make_portfo(5,interval, higher_interval, num_candles, lot=0.01, stop_loss=stop_loss, take_profit=take_profit, deviation =5 )
+    forx.make_portfo(5,interval, higher_interval, num_candles, category=None, method=None, lot=0.01, stop_loss=stop_loss, take_profit=take_profit, deviation =5 )
     time.sleep(sleep_check)
 forx.shutdown()
 
