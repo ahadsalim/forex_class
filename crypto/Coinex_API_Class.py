@@ -1,5 +1,6 @@
 import json
 import time
+import pytz
 import hmac
 import hashlib
 import sqlite3
@@ -447,21 +448,24 @@ class Coinex_API(object):
             return "done" ,res["data"]
         else:
             return "fail" , res
-
-    def get_spot_history(self, type_h= "trade", start_time=None, ccy=None , limit=90 , page = None):
+ 
+    def get_spot_history(self, type_h= "trade", start_time=None, end_time= None, ccy=None , limit=90 , page = None):
+        '''
+        This is a one time method to get all transactions.
+        '''
         cursor = self.conn_db.cursor()
-        cursor.execute("SELECT ltime FROM transactions ORDER BY ltime DESC LIMIT 1")
+        cursor.execute("SELECT ltime FROM transactions ORDER BY ltime ASC LIMIT 1")
         result = cursor.fetchone()
         if result is None:
             ltime = 0
         else:
             ltime= result[0]
-        if start_time == None :
-            start_time = int(ltime)
+        
         request_path = "/assets/spot/transcation-history"
         df2= pd.DataFrame()
         index =0
-        params = {"type": type_h , "ccy": ccy , "limit": limit , "page": page , "start_time" : start_time }
+
+        params = {"type": type_h , "ccy": ccy , "limit": limit , "page": page , "start_time" : start_time , "end_time" : end_time}
         response = self.request(
             "GET",
             "{url}{request_path}".format(url=self.url, request_path=request_path),
@@ -470,10 +474,50 @@ class Coinex_API(object):
         res=response.json()
         if res["code"]==0 :
             df=pd.json_normalize(res["data"])
+            df['Time'] = pd.to_datetime(df['created_at'], unit="ms")
+            tehran_tz = pytz.timezone('Asia/Tehran')
+            df['Time'] = df['Time'].dt.tz_localize('UTC').dt.tz_convert(tehran_tz)
+            
             for i in range(0, len(df), 3):
-                if df.iloc[i]['created_at'] > start_time :
+                df2.loc[index,'ltime']=df.iloc[i]['created_at']
+                df2.loc[index,'Time']=df.iloc[i]['Time']
+                df2.loc[index,'buy']=df.iloc[i]['ccy']#
+                df2.loc[index,'amount']=df.iloc[i+1]['change']#
+                df2.loc[index,'fee']=df.iloc[i]['change']#
+                df2.loc[index,'balance']=df.iloc[i]['balance']#
+                df2.loc[index,'sold']=df.iloc[i+2]['ccy']
+                df2.loc[index,'pay']=df.iloc[i+2]['change']#
+                index+=1
+            df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
+            print(df2)
+        else :
+            raise ValueError(res['message'])
+    
+    def update_spot_history(self, type_h= "trade", start_time=None , limit=90):
+        cursor = self.conn_db.cursor()
+        cursor.execute("SELECT ltime FROM transactions ORDER BY ltime DESC LIMIT 1")
+        result = cursor.fetchone()
+        ltime= result[0]
+        request_path = "/assets/spot/transcation-history"
+        df2= pd.DataFrame()
+        index =0
+        params = {"type": type_h , "limit": limit }
+        response = self.request(
+            "GET",
+            "{url}{request_path}".format(url=self.url, request_path=request_path),
+            params=params,
+        )
+        res=response.json()
+        if res["code"]==0 :
+            df=pd.json_normalize(res["data"])
+            df['Time'] = pd.to_datetime(df['created_at'], unit="ms")
+            tehran_tz = pytz.timezone('Asia/Tehran')
+            df['Time'] = df['Time'].dt.tz_localize('UTC').dt.tz_convert(tehran_tz)
+            df = df[df['created_at'] > ltime]
+            if not df.empty:
+                for i in range(0, len(df), 3):
                     df2.loc[index,'ltime']=df.iloc[i]['created_at']
-                    df2.loc[index,'Time']=pd.to_datetime(df.iloc[i]['created_at'] , unit="ms")#
+                    df2.loc[index,'Time']=df.iloc[i]['Time']
                     df2.loc[index,'buy']=df.iloc[i]['ccy']#
                     df2.loc[index,'amount']=df.iloc[i+1]['change']#
                     df2.loc[index,'fee']=df.iloc[i]['change']#
@@ -481,37 +525,148 @@ class Coinex_API(object):
                     df2.loc[index,'sold']=df.iloc[i+2]['ccy']
                     df2.loc[index,'pay']=df.iloc[i+2]['change']#
                     index+=1
-            df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
+                df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
+                print("updated transactions table.")
+            else :
+                print("No new transactions to update.")
         else :
             raise ValueError(res['message'])
 
-    def calculate_profit(self) :
+    def update_trans_tables(self): # but_transactions & sell_transactions
         cursor = self.conn_db.cursor()
-        query = "SELECT * FROM transactions"  
+        query = "SELECT * FROM transactions WHERE flag=0 ORDER BY ltime ASC"
         df = pd.read_sql_query(query, self.conn_db)
-        df_b = df[df['sold']== 'USDT'].copy()
-        df2=pd.DataFrame()
-        i=0
-        for index, row in df_b.iterrows():
-            df2.loc[i,'Time_buy']= row['ltime']
-            df2.loc[i,'ccy'] = row['buy']
-            df2.loc[i,'pure_amount']= row['balance']
-            df2.loc[i,'pay_USDT']= row['pay']
-            df2.loc[i,'Time_sold']= None
-            df2.loc[i,'recieve']= None
-            df2.loc[i,'proft']= None 
-            i +=1
-        print(df_b)        
-        df_s = df[df['buy']== 'USDT'].copy()
-        '''
-        for index, row in df_s.iterrows():
-               nearest_sell = df3['ltime'].sub(int(row['ltime'])).abs().idxmin()
-            df2.loc[index,'Time_sold'] = df.loc[nearest_sell,'ltime']
-            df2.loc[index,'recieve'] = df.loc[nearest_sell,'balance']
-            df2.loc[index,'proft'] = df2['recieve']-df2['pay_USDT']
-        print(df2)
-        return df2
-        '''
+        # update buy table
+        df_buy = df[df['sold']== 'USDT'].copy() #buy
+        if not df_buy.empty:
+            df_buy.rename(columns={'buy':'symbol','pay':'pay_USDT','amount':'gross_symbol'}, inplace=True)
+            result = []
+            previous_row = None
+            for _, row in df_buy.iterrows():  # پیمایش خط به خط دیتا فریم
+                if previous_row is not None and row['symbol'] == previous_row['symbol']:
+                    # اگر نماد مشابه است، مقادیر را جمع کن
+                    result[-1]['gross_symbol'] += row['gross_symbol']
+                    result[-1]['fee'] += row['fee']
+                    result[-1]['fee_USDT'] += row['fee_USDT']
+                    result[-1]['pay_USDT'] += row['pay_USDT']
+                else:
+                    result.append(row.to_dict())    # اگر نماد متفاوت است، ردیف را به لیست اضافه کن
+                previous_row = row
+            new_df = pd.DataFrame(result)    # تبدیل لیست به دیتا فریم جدید
+            new_df.drop(columns=['sold','balance'], inplace=True) # drop
+            new_df['net_symbol'] = new_df['gross_symbol'] + new_df['fee']
+            order=['ltime','Time','symbol','gross_symbol','fee','net_symbol','fee_USDT','pay_USDT','flag']
+            new_df = new_df[order]
+            new_df = new_df.reset_index()
+            new_df.rename(columns={'index':'rowid'}, inplace=True)
+            print(new_df)
+            new_df.to_sql('buy_transactions',self.conn_db,if_exists='append', index=False)
+            query = "UPDATE transactions SET flag=1 WHERE sold='USDT'"
+            cursor.execute(query)
+            print("buy_Transctions table is updated and all flag of buy record in transactions table changed to 1")
+        
+        #update sell table
+        df_sell = df[df['buy']== 'USDT'].copy()  # sell symbol
+        df_sell.rename(columns={'sold':'symbol','pay':'pay_symbol','amount':'gross_USDT'}, inplace=True)
+        df_sell.drop(columns={'buy','fee','balance'} , inplace=True)
+        if not df_sell.empty:
+            result = []
+            previous_row = None
+            for _, row in df_sell.iterrows():  # پیمایش خط به خط دیتا فریم
+                if previous_row is not None and row['symbol'] == previous_row['symbol']:
+                    # اگر نماد مشابه است، مقادیر را جمع کن
+                    result[-1]['gross_USDT'] += row['gross_USDT']
+                    result[-1]['fee_USDT'] += row['fee_USDT']
+                    result[-1]['pay_symbol'] += row['pay_symbol']
+                else:
+                    result.append(row.to_dict())    # اگر نماد متفاوت است، ردیف را به لیست اضافه کن
+                previous_row = row
+            new_df = pd.DataFrame(result)    # تبدیل لیست به دیتا فریم جدید
+            new_df['net_USDT'] = new_df['gross_USDT'] + new_df['fee_USDT']
+            order=['ltime','Time','symbol','gross_USDT','fee_USDT','net_USDT','pay_symbol','flag']
+            new_df = new_df[order]
+            new_df = new_df.reset_index()
+            new_df.rename(columns={'index':'rowid'}, inplace=True)
+            print(new_df)
+            new_df.to_sql('sell_transactions',self.conn_db,if_exists='append', index=False)
+            query = "UPDATE transactions SET flag=1 WHERE buy='USDT'"
+            cursor.execute(query)
+            print("sell_Transctions table is updated and all flag of sell record in transactions table changed to 1")
+
+    def create_profit_db(self):
+        cursor = self.conn_db.cursor()
+        query = "SELECT * FROM buy_transactions WHERE flag=0 ORDER BY ltime ASC"
+        b_df = pd.read_sql_query(query, self.conn_db)
+        for i,row_b in b_df.iterrows() :
+            symbol=row_b['symbol']
+            query= f"SELECT * FROM sell_transactions WHERE symbol='{symbol}' AND flag=0"
+            df_symbol = pd.read_sql_query(query,self.conn_db)
+            if df_symbol.empty:
+                print(f"{symbol} doesn't sell yet !")
+            else :
+                row_s = df_symbol.iloc[0]
+                remain=row_b['net_symbol'] + row_s['pay_symbol'] # pay_symbol is a negetive number !
+                if remain == 0 :
+                    query = '''INSERT INTO profit 
+                    (b_rowid,b_ltime,symbol,gross_symbol,b_fee_usdt,net_symbol,pay_usdt,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+                    try:
+                        cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol,row_b['gross_symbol'], row_b['fee_USDT'], row_b['net_symbol'], 
+                                               row_b['pay_USDT'],row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],
+                                               row_s['fee_USDT'], row_s['net_USDT'],remain))
+                        q_b="UPDATE buy_transactions SET flag=1 WHERE rowid=?"
+                        cursor.execute(q_b, (row_b['rowid'],))
+                        q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                        cursor.execute(q_s, (int(row_s['rowid']),))
+                        self.conn_db.commit()
+                        print(f"Updated profit record for {symbol} at index {row_b['rowid']} in buy_transactions and at {row_s['rowid']} in sell_transactions.")
+                    except sqlite3.Error as e:
+                        print(f"An error occurred: {e}")
+                        self.conn_db.rollback()
+                elif remain > 0 :
+                    query = '''INSERT INTO profit 
+                    (b_rowid,b_ltime,symbol,gross_symbol,b_fee_usdt,net_symbol,pay_usdt,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+                    
+                    try:
+                        cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol,row_b['gross_symbol'], row_b['fee_USDT'], row_b['net_symbol'], 
+                                               row_b['pay_USDT'],row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],
+                                               row_s['fee_USDT'], row_s['net_USDT'],remain))
+                        q_b="UPDATE buy_transactions SET flag=1 WHERE rowid=?"
+                        cursor.execute(q_b, (row_b['rowid'],))
+                        q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                        cursor.execute(q_s, (int(row_s['rowid']),))
+                        self.conn_db.commit()
+                        print(f"Updated profit record for {symbol} at index {row_b['rowid']} in buy_transactions and at {row_s['rowid']} in sell_transactions.")
+                    except sqlite3.Error as e:
+                        print(f"An error occurred: {e}")
+                        self.conn_db.rollback()
+        # for rows with remain < 0 :
+        query_remain = "SELECT * FROM profit WHERE remain > 0 "
+        df = pd.read_sql_query(query_remain, self.conn_db)
+        for i,row in df.iterrows() :
+            symbol=row['symbol']
+            query= f"SELECT * FROM sell_transactions WHERE symbol='{symbol}' AND flag = 0"
+            df_symbol = pd.read_sql_query(query,self.conn_db)
+            if not df_symbol.empty:
+                row_s = df_symbol.iloc[0]
+                remain=row['remain'] + row_s['pay_symbol'] # pay_symbol is a negetive number !
+                if row['remain'] > abs(row_s['pay_symbol']) :
+                    query = '''INSERT INTO profit 
+                    (symbol,net_symbol,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                    VALUES (?,?,?,?,?,?,?,?,?)'''
+                    try:
+                        cursor.execute(query, (symbol, row['remain'], row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],row_s['fee_USDT'],
+                                               row_s['net_USDT'],remain))
+                        q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                        cursor.execute(q_s, (int(row_s['rowid']),))
+                        q_s="UPDATE profit SET remain=? WHERE b_rowid=?"
+                        cursor.execute(q_s, (remain,int(row['b_rowid']),))
+                        self.conn_db.commit()
+                        print(f"Updated profit record for {symbol} at {row_s['rowid']} in sell_transactions.")
+                    except sqlite3.Error as e:
+                        print(f"An error occurred: {e}")
+                        self.conn_db.rollback()
 
     def modify_order (self,ticker,order_id,amount=None,price=None) :
         
