@@ -487,6 +487,7 @@ class Coinex_API(object):
                 df2.loc[index,'balance']=df.iloc[i]['balance']#
                 df2.loc[index,'sold']=df.iloc[i+2]['ccy']
                 df2.loc[index,'pay']=df.iloc[i+2]['change']#
+                df2.loc[index,'flag']=0
                 index+=1
             df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
             print(df2)
@@ -524,6 +525,7 @@ class Coinex_API(object):
                     df2.loc[index,'balance']=df.iloc[i]['balance']#
                     df2.loc[index,'sold']=df.iloc[i+2]['ccy']
                     df2.loc[index,'pay']=df.iloc[i+2]['change']#
+                    df2.loc[index,'flag']=0
                     index+=1
                 df2.to_sql('transactions', self.conn_db, if_exists='append', index=False)
                 print("updated transactions table.")
@@ -557,9 +559,6 @@ class Coinex_API(object):
             new_df['net_symbol'] = new_df['gross_symbol'] + new_df['fee']
             order=['ltime','Time','symbol','gross_symbol','fee','net_symbol','fee_USDT','pay_USDT','flag']
             new_df = new_df[order]
-            new_df = new_df.reset_index()
-            new_df.rename(columns={'index':'rowid'}, inplace=True)
-            print(new_df)
             new_df.to_sql('buy_transactions',self.conn_db,if_exists='append', index=False)
             query = "UPDATE transactions SET flag=1 WHERE sold='USDT'"
             cursor.execute(query)
@@ -585,9 +584,6 @@ class Coinex_API(object):
             new_df['net_USDT'] = new_df['gross_USDT'] + new_df['fee_USDT']
             order=['ltime','Time','symbol','gross_USDT','fee_USDT','net_USDT','pay_symbol','flag']
             new_df = new_df[order]
-            new_df = new_df.reset_index()
-            new_df.rename(columns={'index':'rowid'}, inplace=True)
-            print(new_df)
             new_df.to_sql('sell_transactions',self.conn_db,if_exists='append', index=False)
             query = "UPDATE transactions SET flag=1 WHERE buy='USDT'"
             cursor.execute(query)
@@ -641,6 +637,76 @@ class Coinex_API(object):
                     except sqlite3.Error as e:
                         print(f"An error occurred: {e}")
                         self.conn_db.rollback()
+                else : # some symbols are completely sold out (with fees !!!)
+                    remain1=row_b['gross_symbol'] + row_s['pay_symbol'] # pay_symbol is a negetive number !
+                    if remain1 == 0 :
+                        query = '''INSERT INTO profit 
+                        (b_rowid,b_ltime,symbol,gross_symbol,b_fee_usdt,net_symbol,pay_usdt,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+                        try:
+                            cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol,row_b['gross_symbol'], row_b['fee_USDT'], row_b['net_symbol'], 
+                                                row_b['pay_USDT'],row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],
+                                                row_s['fee_USDT'], row_s['net_USDT'],remain))
+                            q_b="UPDATE buy_transactions SET flag=1 WHERE rowid=?"
+                            cursor.execute(q_b, (row_b['rowid'],))
+                            q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                            cursor.execute(q_s, (int(row_s['rowid']),))
+                            self.conn_db.commit()
+                            print(f"Updated profit record for {symbol} at index {row_b['rowid']} in buy_transactions and at {row_s['rowid']} in sell_transactions.")
+                        except sqlite3.Error as e:
+                            print(f"An error occurred: {e}")
+                            self.conn_db.rollback()
+                    elif remain1 > 0 :
+                        query = '''INSERT INTO profit 
+                        (b_rowid,b_ltime,symbol,gross_symbol,b_fee_usdt,net_symbol,pay_usdt,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+                        
+                        try:
+                            cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol,row_b['gross_symbol'], row_b['fee_USDT'], row_b['net_symbol'], 
+                                                row_b['pay_USDT'],row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],
+                                                row_s['fee_USDT'], row_s['net_USDT'],remain))
+                            q_b="UPDATE buy_transactions SET flag=1 WHERE rowid=?"
+                            cursor.execute(q_b, (row_b['rowid'],))
+                            q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                            cursor.execute(q_s, (int(row_s['rowid']),))
+                            self.conn_db.commit()
+                            print(f"Updated profit record for {symbol} at index {row_b['rowid']} in buy_transactions and at {row_s['rowid']} in sell_transactions.")
+                        except sqlite3.Error as e:
+                            print(f"An error occurred: {e}")
+                            self.conn_db.rollback()
+                    ###############################
+                query= "SELECT * FROM sell_transactions WHERE flag=0"
+                df = pd.read_sql_query(query,self.conn_db)
+                if not df.empty:
+                    for _,row_s in df.iterrows() :
+                        symbol=row_s['symbol'] # یک فروش که به چند خرید وصل است !
+                        query= f"SELECT * FROM buy_transactions WHERE symbol='{symbol}' AND flag=0"
+                        df_symbol = pd.read_sql_query(query,self.conn_db)
+                        if df_symbol.empty:
+                            print(f"No buy transaction found for {symbol}, maybe you deposits to the account.")
+                            q_s="UPDATE sell_transactions SET flag=2 WHERE rowid=?"
+                            cursor.execute(q_s, (int(row_s['rowid']),))
+                            self.conn_db.commit()
+                        else :
+                            for _,row_b in df_symbol.iterrows() :
+                                if row_b['gross_symbol'] + row_s['pay_symbol'] == 0 :
+                                    query = '''INSERT INTO profit 
+                                    (b_rowid,b_ltime,symbol,gross_symbol,b_fee_usdt,net_symbol,pay_usdt,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+                                    try:
+                                        cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol,row_b['gross_symbol'], row_b['fee_USDT'], row_b['net_symbol'], 
+                                                            row_b['pay_USDT'],row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],
+                                                            row_s['fee_USDT'], row_s['net_USDT'],row_b['gross_symbol'] + row_s['pay_symbol']))
+                                        q_b="UPDATE buy_transactions SET flag=1 WHERE rowid=?"
+                                        cursor.execute(q_b, (row_b['rowid'],))
+                                        q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
+                                        cursor.execute(q_s, (int(row_s['rowid']),))
+                                        self.conn_db.commit()
+                                        print(f"Updated profit record for {symbol} at index {row_b['rowid']} in buy_transactions and at {row_s['rowid']} in sell_transactions.")
+                                    except sqlite3.Error as e:
+                                        print(f"An error occurred: {e}")
+                                        self.conn_db.rollback()
+
         # for rows with remain < 0 :
         query_remain = "SELECT * FROM profit WHERE remain > 0 "
         df = pd.read_sql_query(query_remain, self.conn_db)
@@ -653,11 +719,11 @@ class Coinex_API(object):
                 remain=row['remain'] + row_s['pay_symbol'] # pay_symbol is a negetive number !
                 if row['remain'] > abs(row_s['pay_symbol']) :
                     query = '''INSERT INTO profit 
-                    (symbol,net_symbol,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
-                    VALUES (?,?,?,?,?,?,?,?,?)'''
+                    (b_rowid,b_ltime,symbol,net_symbol,pay_symbol,s_rowid,s_ltime,gross_usdt,s_fee_usdt,net_usdt,remain) 
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)'''
                     try:
-                        cursor.execute(query, (symbol, row['remain'], row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],row_s['gross_USDT'],row_s['fee_USDT'],
-                                               row_s['net_USDT'],remain))
+                        cursor.execute(query, (row_b['rowid'],row_b['ltime'],symbol, row['remain'], row_s['pay_symbol'],int(row_s['rowid']),row_s['ltime'],
+                                               row_s['gross_USDT'],row_s['fee_USDT'], row_s['net_USDT'],remain))
                         q_s="UPDATE sell_transactions SET flag=1 WHERE rowid=?"
                         cursor.execute(q_s, (int(row_s['rowid']),))
                         q_s="UPDATE profit SET remain=? WHERE b_rowid=?"
@@ -667,7 +733,17 @@ class Coinex_API(object):
                     except sqlite3.Error as e:
                         print(f"An error occurred: {e}")
                         self.conn_db.rollback()
+        query = "SELECT * FROM profit"
+        df = pd.read_sql_query(query, self.conn_db)
+        df['profit'] = df['pay_usdt'] + df['net_usdt']
+        df.to_sql("profit", self.conn_db, if_exists="replace" , index=False)
+        print("Profit table updated with profit column successfully.")
 
+    def calculate_profit(self):
+        query = "SELECT * FROM profit ORDER BY b_ltime"
+        df = pd.read_sql_query(query, self.conn_db)
+        df['cum_proftit'] = df['profit'].cumsum()
+        print(df)
     def modify_order (self,ticker,order_id,amount=None,price=None) :
         
         request_path = "/spot/modify-order"

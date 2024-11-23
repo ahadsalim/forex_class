@@ -21,4 +21,4 @@ except Exception as e:
 
 with sqlite3.connect(db_name) as conn:
     coinex = Coinex.Coinex_API(api_key, api_secret, conn)
-    coinex.create_profit_db()
+    coinex.calculate_profit()
